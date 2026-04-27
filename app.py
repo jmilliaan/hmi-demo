@@ -1,8 +1,12 @@
 """
 i-Prime AGV System — Demo Server
+Three browser tabs:
+  http://localhost:5000/        → Home Station HMI
+  http://localhost:5000/agv/1  → AGV-1 onboard HMI
+  http://localhost:5000/agv/2  → AGV-2 onboard HMI
+  http://localhost:5000/machine → Machine calling simulator
 """
 
-import os
 import threading
 import time
 import uuid
@@ -291,18 +295,11 @@ def on_connect():
 if __name__ == "__main__":
     t = threading.Thread(target=_dispatcher_loop, daemon=True)
     t.start()
-    
-    # Grab the port from Render's environment, default to 5000 for local testing
-    port = int(os.environ.get("PORT", 5000))
-    
     print("=" * 60)
     print("  i-Prime Demo Server")
-    print(f"  Starting up on port {port}...")
-    print("  Routes:")
-    print("  Home HMI  →  /")
-    print("  AGV-1 HMI →  /agv/1")
-    print("  AGV-2 HMI →  /agv/2")
-    print("  Machine   →  /machine")
+    print("  Home HMI  →  http://localhost:5000/")
+    print("  AGV-1 HMI →  http://localhost:5000/agv/1")
+    print("  AGV-2 HMI →  http://localhost:5000/agv/2")
+    print("  Machine   →  http://localhost:5000/machine")
     print("=" * 60)
-    
-    socketio.run(app, host="0.0.0.0", port=port, debug=False)
+    socketio.run(app, host="0.0.0.0", port=5000, debug=False)
