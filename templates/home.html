@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>i-Prime · Home Station HMI</title>
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  /* Panel chrome */
+  --chrome:   #b0b8c0;
+  --panel:    #e8ecef;
+  --surface:  #f4f6f8;
+  --white:    #ffffff;
+  --border:   #707880;
+  --border-hvy: #3a3f44;
+
+  /* Text */
+  --txt:      #101418;
+  --txt-dim:  #505860;
+  --txt-lbl:  #303840;
+
+  /* Status colours — ANSI/IEC industrial */
+  --green:    #00a020;   /* running / ok */
+  --amber:    #e07800;   /* warning */
+  --red:      #cc0000;   /* fault / stop */
+  --blue:     #005ab4;   /* selected / info */
+  --gray:     #707880;   /* inactive */
+
+  /* AGV accent */
+  --agv1:     #005ab4;
+  --agv2:     #a04000;
+
+  /* Variant colours */
+  --v1:#005ab4; --v2:#007830; --v3:#a04000;
+  --v4:#6a0080; --v5:#a01818; --v6:#805000;
+}
+
+html, body {
+  height: 100%; background: var(--chrome);
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 16px; color: var(--txt);
+  overflow: hidden;
+}
+body { display: flex; flex-direction: column; }
+
+/* ── Title bar ─────────────────────────────────────────────── */
+.titlebar {
+  background: var(--border-hvy); color: #fff;
+  height: 52px; padding: 0 16px;
+  display: flex; align-items: center; justify-content: space-between;
+  flex-shrink: 0; border-bottom: 3px solid #000;
+}
+.titlebar-left { display: flex; align-items: baseline; gap: 14px; }
+.title   { font-size: 20px; font-weight: bold; letter-spacing: 1px; }
+.sub     { font-size: 13px; color: #b0b8c0; }
+.clock   { font-size: 26px; font-weight: bold; font-family: 'Courier New', monospace; letter-spacing: 3px; }
+
+/* ── Main split ───────────────────────────────────────────── */
+.main { flex: 1; display: flex; overflow: hidden; gap: 3px; padding: 6px; }
+.col-left  { flex: 1; display: flex; flex-direction: column; gap: 6px; overflow-y: auto; }
+.col-right { width: 380px; display: flex; flex-direction: column; gap: 6px; overflow-y: auto; }
+
+/* ── Generic box ──────────────────────────────────────────── */
+.box {
+  background: var(--surface); border: 2px solid var(--border);
+  border-radius: 4px; padding: 10px 12px;
+}
+.box-title {
+  font-size: 12px; font-weight: bold; text-transform: uppercase;
+  letter-spacing: 2px; color: var(--txt-lbl);
+  border-bottom: 2px solid var(--border); padding-bottom: 6px; margin-bottom: 10px;
+  background: var(--panel); margin: -10px -12px 10px -12px;
+  padding: 6px 12px; border-radius: 2px 2px 0 0;
+}
+
+/* ── NEXT ACTION ──────────────────────────────────────────── */
+.next-action { background: var(--white); border: 3px solid var(--border-hvy); border-radius: 4px; padding: 12px; }
+.next-action.idle    { border-color: var(--gray); background: var(--panel); }
+.next-action.agv1-rdy { border-color: var(--agv1); background: #e8f0fb; }
+.next-action.agv2-rdy { border-color: var(--agv2); background: #fbf0e8; }
+.next-action.active-pulse { animation: hmi-pulse 1.2s ease-in-out infinite; }
+@keyframes hmi-pulse {
+  0%,100% { box-shadow: 0 0 0 0 rgba(0,90,180,.5); }
+  50%      { box-shadow: 0 0 0 8px rgba(0,90,180,0); }
+}
+.na-title { font-size: 13px; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; color: var(--txt-lbl); margin-bottom: 8px; }
+.na-agv   { font-size: 14px; font-weight: bold; }
+.na-agv.a1 { color: var(--agv1); } .na-agv.a2 { color: var(--agv2); }
+.na-variant { font-size: 72px; font-weight: bold; line-height: 1; display: inline-block; border: 3px solid currentColor; border-radius: 4px; padding: 2px 14px; margin: 6px 0; }
+.na-dest    { font-size: 20px; font-weight: bold; color: var(--txt); margin: 4px 0; }
+.na-idle-txt { font-size: 28px; font-weight: bold; color: var(--gray); text-align: center; padding: 16px 0; letter-spacing: 2px; }
+
+.btn-depart {
+  display: block; width: 100%; margin-top: 12px; padding: 14px;
+  background: #006400; border: 3px solid #003a00;
+  border-radius: 4px; color: #fff;
+  font-size: 20px; font-weight: bold; font-family: inherit;
+  cursor: pointer; text-transform: uppercase; letter-spacing: 2px;
+  box-shadow: inset 0 -3px 0 rgba(0,0,0,.3);
+  transition: background .1s;
+}
+.btn-depart:hover:not(:disabled) { background: #007800; }
+.btn-depart:active:not(:disabled) { box-shadow: inset 0 2px 4px rgba(0,0,0,.4); transform: translateY(1px); }
+.btn-depart:disabled { background: #a0a8b0; border-color: #707880; color: #505860; cursor: not-allowed; box-shadow: none; }
+
+/* ── AGV status card ──────────────────────────────────────── */
+.agv-card { border-width: 3px; }
+.agv-card.a1 { border-left: 6px solid var(--agv1); }
+.agv-card.a2 { border-left: 6px solid var(--agv2); }
+.agv-card-title { font-size: 15px; font-weight: bold; margin-bottom: 8px; }
+.a1 .agv-card-title { color: var(--agv1); }
+.a2 .agv-card-title { color: var(--agv2); }
+
+.kv  { display: flex; justify-content: space-between; align-items: baseline; padding: 5px 0; border-bottom: 1px solid #c0c8d0; font-size: 15px; }
+.kv:last-child { border-bottom: none; }
+.kv-k { color: var(--txt-lbl); font-weight: bold; min-width: 90px; }
+.kv-v { font-size: 16px; font-weight: bold; }
+
+.status-ok   { color: var(--green); }
+.status-warn { color: var(--amber); }
+.status-bad  { color: var(--red);   }
+.status-idle { color: var(--gray);  }
+
+.bat-wrap { margin-top: 4px; height: 16px; background: #c0c8d0; border: 2px solid var(--border); border-radius: 3px; overflow: hidden; }
+.bat-fill { height: 100%; transition: width .4s; }
+.bat-ok   { background: var(--green); }
+.bat-warn { background: var(--amber); }
+.bat-crit { background: var(--red);   }
+
+/* ── Call queue ───────────────────────────────────────────── */
+.queue-group { margin-bottom: 12px; }
+.queue-group-hdr {
+  font-size: 13px; font-weight: bold; text-transform: uppercase; letter-spacing: 1px;
+  padding: 4px 8px; background: var(--panel); border: 1px solid var(--border);
+  border-bottom: none; border-radius: 3px 3px 0 0; color: var(--txt-lbl);
+}
+.queue-body { border: 2px solid var(--border); border-radius: 0 0 3px 3px; }
+
+.q-row {
+  display: flex; align-items: center; gap: 8px; padding: 7px 10px;
+  border-bottom: 1px solid #c0c8d0; font-size: 14px; background: var(--white);
+}
+.q-row:last-child { border-bottom: none; }
+.q-row.age-g { border-left: 5px solid var(--green); }
+.q-row.age-y { border-left: 5px solid var(--amber); background: #fff8e8; }
+.q-row.age-r { border-left: 5px solid var(--red);   background: #fff0f0; }
+.q-machine { font-weight: bold; min-width: 68px; }
+.q-var     { font-weight: bold; min-width: 30px; }
+.q-age     { color: var(--txt-dim); font-family: 'Courier New', monospace; min-width: 50px; }
+.q-status  { margin-left: auto; font-size: 12px; font-weight: bold; padding: 2px 8px; border: 1px solid var(--border); border-radius: 3px; background: var(--panel); }
+.q-empty   { padding: 8px 10px; color: var(--gray); font-size: 14px; border: 2px solid var(--border); border-radius: 0 0 3px 3px; background: var(--surface); }
+
+/* ── Alarms ───────────────────────────────────────────────── */
+.alarm-none { color: var(--gray); font-size: 14px; }
+.alarm-row  { display: flex; gap: 10px; padding: 6px 0; border-bottom: 2px solid #c0c8d0; font-size: 14px; font-weight: bold; }
+.alarm-row:last-child { border-bottom: none; }
+.alarm-fault { color: var(--red); }
+.alarm-warn  { color: var(--amber); }
+
+/* ── Nav bar ──────────────────────────────────────────────── */
+.navbar {
+  background: var(--panel); border-top: 3px solid var(--border-hvy);
+  height: 68px; display: flex; flex-shrink: 0;
+}
+.nav-btn {
+  flex: 1; border: none; border-right: 2px solid var(--border);
+  background: var(--panel); color: var(--txt-dim);
+  font-size: 15px; font-weight: bold; font-family: inherit; text-transform: uppercase;
+  letter-spacing: 1px; cursor: pointer; transition: background .1s;
+}
+.nav-btn:last-child { border-right: none; }
+.nav-btn.active { background: var(--blue); color: #fff; }
+.nav-btn:hover:not(.active) { background: #c8d0d8; color: var(--txt); }
+
+/* ── Variant colours ──────────────────────────────────────── */
+.vc-1{color:var(--v1)} .vc-2{color:var(--v2)} .vc-3{color:var(--v3)}
+.vc-4{color:var(--v4)} .vc-5{color:var(--v5)} .vc-6{color:var(--v6)}
+</style>
+</head>
+<body>
+
+<div class="titlebar">
+  <div class="titlebar-left">
+    <span class="title">i-Prime &mdash; HOME STATION HMI</span>
+    <span class="sub">Boiacca Area · Demo</span>
+  </div>
+  <div class="clock" id="clock">--:--:--</div>
+</div>
+
+<div class="main">
+
+  <!-- ── Left column ── -->
+  <div class="col-left">
+
+    <!-- NEXT ACTION — AGV-1 -->
+    <div class="next-action idle" id="na-panel-1">
+      <div class="na-title">Next Action &mdash; AGV-1 (Loop A+B)</div>
+      <div id="na-body-1"><div class="na-idle-txt">WAITING</div></div>
+    </div>
+
+    <!-- NEXT ACTION — AGV-2 -->
+    <div class="next-action idle" id="na-panel-2">
+      <div class="na-title">Next Action &mdash; AGV-2 (Loop C+D)</div>
+      <div id="na-body-2"><div class="na-idle-txt">WAITING</div></div>
+    </div>
+
+    <!-- AGV-1 status -->
+    <div class="box agv-card a1">
+      <div class="agv-card-title">AGV-1 &mdash; Loop A+B</div>
+      <div class="kv"><span class="kv-k">Mode</span>     <span class="kv-v" id="a1-mode">—</span></div>
+      <div class="kv"><span class="kv-k">Stage</span>    <span class="kv-v" id="a1-stage">—</span></div>
+      <div class="kv"><span class="kv-k">Position</span> <span class="kv-v" id="a1-pos">—</span></div>
+      <div class="kv"><span class="kv-k">Speed</span>    <span class="kv-v" id="a1-speed">—</span></div>
+      <div class="kv"><span class="kv-k">Battery</span>  <span class="kv-v" id="a1-bat">—</span></div>
+      <div class="bat-wrap"><div class="bat-fill bat-ok" id="a1-bat-bar" style="width:87%"></div></div>
+    </div>
+
+    <!-- AGV-2 status -->
+    <div class="box agv-card a2">
+      <div class="agv-card-title">AGV-2 &mdash; Loop C+D</div>
+      <div class="kv"><span class="kv-k">Mode</span>     <span class="kv-v" id="a2-mode">—</span></div>
+      <div class="kv"><span class="kv-k">Stage</span>    <span class="kv-v" id="a2-stage">—</span></div>
+      <div class="kv"><span class="kv-k">Position</span> <span class="kv-v" id="a2-pos">—</span></div>
+      <div class="kv"><span class="kv-k">Speed</span>    <span class="kv-v" id="a2-speed">—</span></div>
+      <div class="kv"><span class="kv-k">Battery</span>  <span class="kv-v" id="a2-bat">—</span></div>
+      <div class="bat-wrap"><div class="bat-fill bat-ok" id="a2-bat-bar" style="width:62%"></div></div>
+    </div>
+
+  </div>
+
+  <!-- ── Right column ── -->
+  <div class="col-right">
+
+    <!-- Call Queue -->
+    <div class="box" style="flex:1; overflow:hidden; display:flex; flex-direction:column;">
+      <div class="box-title">Call Queue</div>
+
+      <div class="queue-group">
+        <div class="queue-group-hdr">Loop A+B &mdash; AGV-1</div>
+        <div id="q1-body"><div class="q-empty">No pending calls</div></div>
+      </div>
+
+      <div class="queue-group">
+        <div class="queue-group-hdr">Loop C+D &mdash; AGV-2</div>
+        <div id="q2-body"><div class="q-empty">No pending calls</div></div>
+      </div>
+    </div>
+
+    <!-- Alarms -->
+    <div class="box">
+      <div class="box-title">Active Alarms</div>
+      <div id="alarms"><div class="alarm-none">&#10003; No active alarms</div></div>
+    </div>
+
+  </div>
+
+</div><!-- /main -->
+
+<div class="navbar">
+  <button class="nav-btn active">Operations</button>
+  <button class="nav-btn" onclick="toast('Manual Dispatch — use the Machine Simulator tab')">Manual Dispatch</button>
+  <button class="nav-btn" onclick="toast('Diagnostics not implemented in demo')">Diagnostics / KPIs</button>
+</div>
+
+<!-- Toast -->
+<div id="toast-el" style="
+  position:fixed; bottom:80px; left:50%; transform:translateX(-50%);
+  background:#3a3f44; color:#fff; border:2px solid #000;
+  padding:10px 20px; border-radius:4px; font-size:14px; font-weight:bold;
+  opacity:0; transition:opacity .3s; pointer-events:none; z-index:200;
+"></div>
+
+<script>
+const VC = ['','vc-1','vc-2','vc-3','vc-4','vc-5','vc-6'];
+const VN = ['','V1','V2','V3','V4','V5','V6'];
+let _last = null;
+const socket = io();
+
+setInterval(() => {
+  document.getElementById('clock').textContent = new Date().toTimeString().slice(0,8);
+}, 500);
+
+function toast(msg) {
+  const el = document.getElementById('toast-el');
+  el.textContent = msg; el.style.opacity = '1';
+  setTimeout(() => el.style.opacity = '0', 3000);
+}
+
+function fmtAge(t) {
+  const s = Math.max(0, Math.floor(Date.now()/1000 - t));
+  return String(Math.floor(s/60)).padStart(2,'0') + ':' + String(s%60).padStart(2,'0');
+}
+function ageClass(t) {
+  const s = Date.now()/1000 - t;
+  return s < 120 ? 'age-g' : s < 300 ? 'age-y' : 'age-r';
+}
+
+function modeClass(m) {
+  if (m === 'AUTO')      return 'status-ok';
+  if (m === 'MANUAL')    return 'status-warn';
+  if (m === 'EMERGENCY') return 'status-bad';
+  return 'status-idle';
+}
+
+function stageClass(s) {
+  if (s === 'IDLE')      return 'status-idle';
+  if (s === 'EN_ROUTE' || s === 'RETURNING') return 'status-warn';
+  if (s === 'AT_LINE')   return 'status-ok';
+  return '';
+}
+
+function setBattery(id, pct) {
+  const bar = document.getElementById(`a${id}-bat-bar`);
+  bar.style.width = pct + '%';
+  bar.className = 'bat-fill ' + (pct > 30 ? 'bat-ok' : pct > 15 ? 'bat-warn' : 'bat-crit');
+  document.getElementById(`a${id}-bat`).textContent = pct + ' %';
+  document.getElementById(`a${id}-bat`).className = 'kv-v ' + (pct > 30 ? 'status-ok' : pct > 15 ? 'status-warn' : 'status-bad');
+}
+
+function renderQueue(agvId, calls) {
+  const body = document.getElementById(`q${agvId}-body`);
+  const rows = calls.filter(c => c.agv === agvId);
+  if (!rows.length) {
+    body.innerHTML = '<div class="q-empty">No pending calls</div>';
+    return;
+  }
+  body.innerHTML = '<div class="queue-body">' + rows.map(c => `
+    <div class="q-row ${ageClass(c.created_at)}">
+      <span class="q-machine">${c.machine}</span>
+      <span class="q-var ${VC[c.variant]}">${VN[c.variant]}</span>
+      <span class="q-age">${fmtAge(c.created_at)}</span>
+      <span class="q-status">${c.status}</span>
+    </div>`).join('') + '</div>';
+}
+
+function renderNextAction(id, action, agv) {
+  const panel = document.getElementById(`na-panel-${id}`);
+  const body  = document.getElementById(`na-body-${id}`);
+  const acls  = id === 1 ? 'a1' : 'a2';
+  const rdy   = id === 1 ? 'agv1-rdy' : 'agv2-rdy';
+
+  if (!action) {
+    panel.className = 'next-action idle';
+    body.innerHTML = '<div class="na-idle-txt">WAITING</div>';
+    return;
+  }
+
+  const canDepart = agv.at_home && agv.stage === 'IDLE';
+  panel.className = `next-action ${rdy}${canDepart ? ' active-pulse' : ''}`;
+  body.innerHTML = `
+    <div class="na-agv ${acls}">AGV-${id}</div>
+    <div>
+      <span class="na-variant ${VC[action.variant]}">${VN[action.variant]}</span>
+    </div>
+    <div class="na-dest">&#8594; ${action.stops.join(' &nbsp;+&nbsp; ')}</div>
+    <button class="btn-depart" ${canDepart ? '' : 'disabled'} onclick="depart(${id})">
+      ${canDepart ? '&#9654;&#9654; DEPART' : '&#8987; AGV NOT READY'}
+    </button>`;
+}
+
+function depart(agvId) {
+  fetch('/api/depart', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({agv_id: agvId})
+  }).then(r=>r.json()).then(d => { if (!d.ok) toast('Depart failed: ' + (d.reason||'?')); });
+}
+
+function render(data) {
+  _last = data;
+
+  function setAgv(n, a) {
+    document.getElementById(`a${n}-mode`).textContent  = a.mode;
+    document.getElementById(`a${n}-mode`).className    = 'kv-v ' + modeClass(a.mode);
+    document.getElementById(`a${n}-stage`).textContent = a.stage;
+    document.getElementById(`a${n}-stage`).className   = 'kv-v ' + stageClass(a.stage);
+    document.getElementById(`a${n}-pos`).textContent   = a.position;
+    document.getElementById(`a${n}-speed`).textContent = a.speed;
+    setBattery(n, a.battery);
+  }
+  setAgv(1, data.agv[1]);
+  setAgv(2, data.agv[2]);
+
+  renderQueue(1, data.calls);
+  renderQueue(2, data.calls);
+  renderNextAction(1, data.next_action[1], data.agv[1]);
+  renderNextAction(2, data.next_action[2], data.agv[2]);
+
+  const alarmsEl = document.getElementById('alarms');
+  if (!data.alarms || !data.alarms.length) {
+    alarmsEl.innerHTML = '<div class="alarm-none">&#10003; No active alarms</div>';
+  } else {
+    alarmsEl.innerHTML = data.alarms.map(a =>
+      `<div class="alarm-row ${a.severity==='FAULT'?'alarm-fault':'alarm-warn'}">${a.severity==='FAULT'?'&#10005;':'&#9651;'} ${a.message}</div>`
+    ).join('');
+  }
+}
+
+socket.on('state', render);
+setInterval(() => { if (_last) { renderQueue(1, _last.calls); renderQueue(2, _last.calls); } }, 1000);
+</script>
+</body>
+</html>
