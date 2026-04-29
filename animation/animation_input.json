@@ -1,0 +1,99 @@
+{
+  "_note": "All pixel coordinates measured from TOP-LEFT origin on the layout image. If you measured from bottom-left, set flip_y=true and the script handles the transform.",
+
+  "canvas": {
+    "image_path": "plant_layout.png",
+    "width_px": 1920,
+    "height_px": 1080,
+    "flip_y": false
+  },
+
+  "stations": {
+    "HOME":   {"xy": [320, 540], "label": "Supermarket / Home"},
+    "VMI-1":  {"xy": [960, 180], "label": "VMI 1"},
+    "VMI-2":  {"xy": [1100, 180], "label": "VMI 2"},
+    "VMI-3":  {"xy": [1240, 180], "label": "VMI 3"},
+    "VMI-4":  {"xy": [1380, 180], "label": "VMI 4"},
+    "VMI-5":  {"xy": [1520, 180], "label": "VMI 5"},
+    "VMI-6":  {"xy": [1660, 180], "label": "VMI 6"},
+    "R2.5-1": {"xy": [640, 900],  "label": "R2.5 B1"},
+    "R2.5-2": {"xy": [780, 900],  "label": "R2.5 B2"},
+    "R2.5-3": {"xy": [920, 900],  "label": "R2.5 B3"},
+    "R2.5-4": {"xy": [1060, 900], "label": "R2.5 B4"}
+  },
+
+  "paths": {
+    "_note": "Ordered waypoint lists defining legal AGV routes. AGV interpolates along these — add intermediate points to follow corridors/turns.",
+    "HOME_to_VMI-1": [
+      [320, 540], [320, 180], [960, 180]
+    ],
+    "HOME_to_R2.5-1": [
+      [320, 540], [640, 540], [640, 900]
+    ]
+  },
+
+  "agents": {
+    "AGV-1": {"color": "#E63946", "shape": "rect", "size_px": 30},
+    "AGV-2": {"color": "#457B9D", "shape": "rect", "size_px": 30},
+    "AGV-3": {"color": "#2A9D8F", "shape": "rect", "size_px": 30},
+    "TROLLEY": {"color": "#F4A261", "shape": "rect", "size_px": 24},
+    "OPERATOR": {"color": "#264653", "shape": "circle", "size_px": 18}
+  },
+
+  "animation": {
+    "fps": 30,
+    "agv_speed_px_per_s": 120,
+    "output_path": "agv_simulation.mp4",
+    "show_labels": true,
+    "show_station_dots": true,
+    "show_path_trace": true
+  },
+
+  "scenario": [
+    {
+      "t_start_s": 0.0,
+      "event": "call",
+      "line": "VMI-1",
+      "lorry_variant": "SMALL_LORRY_12U",
+      "label": "VMI-1 presses call button"
+    },
+    {
+      "t_start_s": 1.0,
+      "event": "load",
+      "agv": "AGV-1",
+      "lorry_variant": "SMALL_LORRY_12U",
+      "label": "Operator loads small lorry onto AGV-1"
+    },
+    {
+      "t_start_s": 3.0,
+      "event": "depart",
+      "agv": "AGV-1",
+      "origin": "HOME",
+      "destination": "VMI-1",
+      "path": "HOME_to_VMI-1",
+      "label": "AGV-1 departs to VMI-1"
+    },
+    {
+      "t_start_s": 10.0,
+      "event": "arrive_line",
+      "agv": "AGV-1",
+      "destination": "VMI-1",
+      "label": "AGV-1 arrives at VMI-1, releases empty lorry"
+    },
+    {
+      "t_start_s": 13.0,
+      "event": "depart",
+      "agv": "AGV-1",
+      "origin": "VMI-1",
+      "destination": "HOME",
+      "path": "HOME_to_VMI-1",
+      "label": "AGV-1 returns with full lorry"
+    },
+    {
+      "t_start_s": 20.0,
+      "event": "arrive_home",
+      "agv": "AGV-1",
+      "label": "AGV-1 docks at supermarket"
+    }
+  ]
+}
