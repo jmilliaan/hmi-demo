@@ -1,0 +1,204 @@
+{
+  "project": "i-Prime AGV System — HMI Design Spec (Goodyear)",
+  "revision": "v0.1",
+  "date": "2026-04",
+
+  "system": {
+    "machines": 10,
+    "lines": ["VMI-1","VMI-2","VMI-3","VMI-4","VMI-5","VMI-6","R2.5-1","R2.5-2","R2.5-3","R2.5-4"],
+    "agvs": {
+      "count": 3,
+      "ids": ["AGV-1","AGV-2","AGV-3"],
+      "loop_binding": null,
+      "failover": true,
+      "note": "all AGVs serve all lines; no dedicated assignment"
+    },
+    "calling_stations": {
+      "buttons_per_station": 2,
+      "total_di": 20,
+      "button_map": {"0": "SMALL_LORRY_12U", "1": "BIG_LORRY_16U"},
+      "di_modules": "1x 32-ch Modbus TCP (20 inputs used)",
+      "semantic": "button press = call + lorry variant in one event"
+    },
+    "home_station_pc": {
+      "os": "Ubuntu 22",
+      "process": "iprime_master (asyncio): Modbus poll + dispatcher + MQTT client + Flask/WS + sqlite logger",
+      "services": [
+        "mosquitto.service — MQTT broker",
+        "iprime_master.service — main app",
+        "chromium-kiosk.service — kiosk on localhost:5000"
+      ],
+      "display": "10.4\" 1600x900 capacitive touch, glove-compatible, landscape"
+    },
+    "control_flow": "DI rising edge → Call object in queue → dispatcher assigns first idle AGV → MQTT dispatch cmd → AGV ack + execute. HMI is read-only view; never a peer."
+  },
+
+  "dispatcher": {
+    "agv_selection": "first_idle_wins",
+    "agv_selection_note": "no distance logic; first AGV with state=IDLE at home gets assigned",
+    "zone_logic": null,
+    "partner_wait_logic": null,
+    "lorry_variants": ["SMALL_LORRY_12U", "BIG_LORRY_16U"],
+    "supermarket_flow": "AGV parks at home; supermarket operator loads correct lorry variant; operator presses Depart to release AGV"
+  },
+
+  "home_hmi": {
+    "tech": "Flask + Vue3 CDN (no build step) or htmx; WebSocket state push at 10 Hz or on-change; no auth",
+    "touch": "min 12mm×12mm (~85px) targets; min 18px body text; assume gloves",
+    "pages": {
+      "1_operations": {
+        "layout": "left: next-action panel + three AGV status cards; right: single call queue (all lines, all AGVs) + alarm strip; persistent bottom nav 80px",
+        "next_action_panel": {
+          "content": "lorry variant (SMALL/BIG, large font, colour-coded) + target AGV + destination line + DEPART button",
+          "depart_enabled_when": "AGV at home (RFID HOME tag + AGV at_home=true via MQTT)",
+          "idle_state": "WAITING in muted grey"
+        },
+        "call_queue_row": "line_id | lorry_variant | age mm:ss | state | assigned_agv",
+        "call_states": ["QUEUED","ASSIGNED","AT_HOME_LOAD","EN_ROUTE","AT_LINE","RETURNING","COMPLETED","CANCELLED"],
+        "row_age_tint": {"green": "<2min", "yellow": "2–5min", "red": ">5min"},
+        "long_press_row": "contextual menu: Cancel / Force-assign to specific AGV",
+        "agv_cards": {
+          "count": 3,
+          "fields": "mode (colour-coded) + zone/line + battery (bar, warn@30%, alarm@15%) + speed + current task"
+        },
+        "mode_colours": {"AUTO": "green", "MANUAL": "blue", "ARMED": "grey", "EMERGENCY": "red-flash", "DISCONNECTED": "dark-red"},
+        "alarm_strip": "active alarms only; tap to silence buzzer; visual clears on condition clear; icons: ⚠warn ✕fault ⓘinfo"
+      },
+      "2_manual_dispatch": {
+        "layout": "single-page left-to-right wizard: 1.AGV (any of 3) → 2.Destination (10-button grid, all lines always enabled) → 3.Variant (SMALL/BIG) → 4.DISPATCH button",
+        "validation": "exactly 1 destination required; variant required; any AGV selectable",
+        "abort_section": "shows active dispatches per AGV + [CANCEL DISPATCH] [RECALL HOME] per AGV",
+        "agv_control": "[FORCE TO MANUAL] (requires physical switch) | [RETURN HOME] per AGV"
+      },
+      "3_diagnostics_kpis": {
+        "left": "shift cycle counts total + per-line breakdown; lorry variant histogram (SMALL vs BIG); AGV uptime/availability%; system health (Modbus module, MQTT, dispatcher loop ms)",
+        "right": "AGV telemetry selector (AGV-1/2/3); full AMRState snapshot; alarm history last 50 events",
+        "data_source": "sqlite event log, per-shift, no MES/ERP integration v1"
+      }
+    },
+    "alarm_matrix": [
+      {"source": "AGV emergency", "sev": "FAULT", "visual": "red flash modal", "audio": true, "andon": "red-flash"},
+      {"source": "AGV MQTT disconnect", "sev": "FAULT", "visual": "red banner", "audio": true, "andon": "red-flash"},
+      {"source": "battery<15%", "sev": "FAULT", "visual": "red banner", "audio": true, "andon": "red-flash"},
+      {"source": "battery<30%", "sev": "WARN", "visual": "yellow icon", "audio": false, "andon": "amber"},
+      {"source": "Modbus DI offline", "sev": "FAULT", "visual": "red banner", "audio": true, "andon": "red-flash"},
+      {"source": "call age>5min", "sev": "WARN", "visual": "yellow row", "audio": false, "andon": "amber"},
+      {"source": "call age>10min", "sev": "FAULT", "visual": "red row", "audio": true, "andon": "amber-flash"},
+      {"source": "dispatch no-ack", "sev": "WARN", "visual": "yellow toast", "audio": false, "andon": "none"}
+    ],
+    "andon": "3-colour tower (green/amber/red) + buzzer; wired via DO on Modbus bus; dispatcher writes on highest alarm level"
+  },
+
+  "agv_hmi": {
+    "runtime": "Chromium-kiosk on AGV PC (Ubuntu 22); Flask app reading AMRState via Unix socket or local MQTT topic",
+    "normal_use": "physical pendant + station buttons; HMI for maintenance/commissioning/troubleshooting only",
+    "pages": {
+      "1_status": "mode indicator; tape/lateral-error gauge; last RFID; current task+stage; battery bar+voltage; L/R wheel RPM; PID output; link health (CAN, Modbus DIO, Modbus AO, RFID, MQTT, pendant); active alarms",
+      "2_manual_control": {
+        "gate": "physical mode switch = MANUAL AND (pendant detected OR Maintenance Mode toggle active)",
+        "jog": "8-direction momentary buttons; pusher UP/DOWN/TOGGLE (conditional on hardware); manual speed V_MAN configurable",
+        "safety": "WebSocket heartbeat; >200ms silence → control stack forces idle"
+      },
+      "3_parameters": "read-only by default; Edit gated by Maintenance Mode; PID gains per speed mode; speed targets; accel ramp; V_RED coefficients; RFID command map; saves to parameters.json + soft-reload",
+      "4_io_alarms": "live DI/DO bits + AO voltages + raw CAN frames + last RFID; labelled by system_summary.json symbolic names; alarm log last 100 events; CSV export"
+    }
+  },
+
+  "comms": {
+    "mqtt_topics": [
+      {"topic": "agv/<id>/telemetry", "dir": "AGV→home", "qos": 0, "retain": true, "payload": "AMRState snapshot 10Hz"},
+      {"topic": "agv/<id>/event", "dir": "AGV→home", "qos": 1, "retain": false, "payload": "mode change / alarm"},
+      {"topic": "agv/<id>/cmd/dispatch", "dir": "home→AGV", "qos": 1, "retain": false, "payload": "{destination, lorry_variant, dispatch_id}"},
+      {"topic": "agv/<id>/cmd/abort", "dir": "home→AGV", "qos": 1, "retain": false, "payload": "{dispatch_id, reason}"},
+      {"topic": "agv/<id>/cmd/return_home", "dir": "home→AGV", "qos": 1, "retain": false, "payload": "{}"},
+      {"topic": "agv/<id>/cmd/force_manual", "dir": "home→AGV", "qos": 1, "retain": false, "payload": "{}"},
+      {"topic": "agv/<id>/ack", "dir": "AGV→home", "qos": 1, "retain": false, "payload": "{dispatch_id, status, ts}"},
+      {"topic": "agv/<id>/heartbeat", "dir": "AGV→home", "qos": 0, "retain": false, "payload": "1Hz"},
+      {"topic": "home/status", "dir": "home→AGVs", "qos": 0, "retain": true, "payload": "{shift, ts}"}
+    ],
+    "dispatch_id": "UUID per call; echoed on every AGV ack/event for dedup/ordering",
+    "modbus_polling": {
+      "total_inputs": 20,
+      "modules": 1,
+      "rate": "20Hz per module (50ms cycle)",
+      "edge_detection": "XOR+AND bitmask per cycle",
+      "debounce": "10ms hardware filter on DI module"
+    },
+    "websocket": {
+      "endpoint": "/ws",
+      "state_push": {"type": "state", "fields": ["ts", "queue", "agv1", "agv2", "agv3", "alarms"], "rate": "10Hz or on-change"},
+      "cmd": {"type": "cmd", "fields": ["action", "agv", "destination", "lorry_variant"]}
+    }
+  },
+
+  "call_lifecycle": {
+    "states": ["QUEUED","ASSIGNED","AT_HOME_LOAD","EN_ROUTE","AT_LINE","RETURNING","COMPLETED","CANCELLED"],
+    "transitions": [
+      "button press → QUEUED",
+      "any AGV idle at home → ASSIGNED (first-idle-wins)",
+      "AGV idle at home → AT_HOME_LOAD (next-action shown to supermarket operator)",
+      "operator loads lorry + presses Depart → EN_ROUTE",
+      "RFID at destination → AT_LINE",
+      "line operator swaps lorry + presses depart → RETURNING",
+      "RFID HOME → COMPLETED",
+      "manual cancel → CANCELLED"
+    ],
+    "removed_vs_evoluzione": ["WAITING_PARTNER state", "zone B/C partner-wait timer", "loop binding logic", "multi-stop dispatch (B/C zones)"],
+    "logging": "every transition timestamped to sqlite; raw data for KPI cycle counts and timing"
+  },
+
+  "tech_stack": {
+    "backend": "Python 3.10, asyncio, pymodbus≥3, paho-mqtt, Flask",
+    "frontend": "Vue3 CDN or htmx + vanilla JS (no Node toolchain on production PC)",
+    "charting": "Chart.js",
+    "ipc": "WebSocket (websockets lib) for HMI; MQTT for AGVs",
+    "broker": "Mosquitto",
+    "logging": "sqlite3 (events) + rotating CSV (raw telemetry, optional)",
+    "service_mgmt": "systemd",
+    "kiosk": "chromium-browser --kiosk"
+  },
+
+  "scope": {
+    "igp_scope": ["3x AGV units + charging", "Magnetic guide tape", "1 main/home station + 10 call stations (2 buttons each)", "Trolley hook design"],
+    "customer_scope": ["Trolley hook modification per AGV spec", "Trolley wheel & floor condition", "Track area conditioning (turning radii, forklift clearance)"]
+  },
+
+  "delta_from_evoluzione": {
+    "removed": [
+      "Zone/loop partitioning (A/B/C/D)",
+      "AGV-to-loop binding",
+      "6-button variant system → 2-button lorry-size system",
+      "38 machines → 10 machines",
+      "228 DI inputs → 20 DI inputs (~8 Modbus modules → 1)",
+      "WAITING_PARTNER state and 5-min partner-wait timer",
+      "Multi-stop dispatch logic for zone B/C",
+      "Call queue split by loop"
+    ],
+    "changed": [
+      "3 AGVs (was 2), all homogeneous",
+      "Single unified call queue (was 2 per loop)",
+      "AGV status cards: 3 (was 2)",
+      "Manual dispatch: destination grid 10 lines flat (was loop-filtered 38)",
+      "dispatch payload: destination (singular) + lorry_variant (was stops[] + variant int)"
+    ],
+    "unchanged": [
+      "Home station PC architecture and process model",
+      "MQTT topic schema and QoS strategy",
+      "WebSocket state-push protocol",
+      "Call lifecycle pattern (button → queue → assign → depart → line → return)",
+      "AGV onboard HMI structure (4 pages)",
+      "Alarm matrix and Andon tower logic",
+      "Tech stack",
+      "Phasing approach"
+    ]
+  },
+
+  "open_questions": [
+    "VMI-6 not present in Goodyear slide (only VMI-1 to VMI-5 + 4x R2.5 = 9 lines). Confirm VMI-6 is real or adjust LINES array to 9.",
+    "All 3 AGVs share one home/supermarket position, or are there multiple departure bays?",
+    "If 2 AGVs are idle simultaneously and a call arrives, first-idle-wins requires a deterministic tiebreak — suggest AGV-ID ascending order.",
+    "Pusher mechanism: present on Goodyear deployment units? Affects AGV HMI Page 2.",
+    "Calling-station LED feedback: 20 indicator lamps feasible (much smaller than 228). Decision before hardware procurement.",
+    "10.4\" display confirmed for Goodyear home station, or different size?"
+  ]
+}

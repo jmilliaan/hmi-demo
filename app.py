@@ -1,9 +1,10 @@
 """
-i-Prime AGV System — Demo Server
-Three browser tabs:
+i-Prime AGV System — Demo Server (Goodyear)
+Four browser tabs:
   http://localhost:5000/        → Home Station HMI
   http://localhost:5000/agv/1  → AGV-1 onboard HMI
   http://localhost:5000/agv/2  → AGV-2 onboard HMI
+  http://localhost:5000/agv/3  → AGV-3 onboard HMI
   http://localhost:5000/machine → Machine calling simulator
 """
 
@@ -20,18 +21,13 @@ app.config["SECRET_KEY"] = "iprime-demo-2026"
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 
 # ---------------------------------------------------------------------------
-# Zone / machine definitions
+# Line definitions (Goodyear)
 # ---------------------------------------------------------------------------
-ZONE_A = [f"MRU-{i}" for i in range(1, 5)]
-ZONE_B = [f"BTU-{i}" for i in range(9, 25)]
-ZONE_C = [f"BTU-{i}" for i in range(1, 9)] + [f"STU-{i}" for i in range(1, 7)]
-ZONE_D = [f"STU-{i}" for i in range(7, 11)]
+LINES = ["VMI-1", "VMI-2", "VMI-3", "VMI-4", "VMI-5",
+         "F2.5",
+         "R2.5-1", "R2.5-2", "R2.5-3", "R2.5-4"]
 
-MACHINE_TO_AGV = {m: 1 for m in ZONE_A + ZONE_B}
-MACHINE_TO_AGV.update({m: 2 for m in ZONE_C + ZONE_D})
-
-SINGLE_STOP = set(ZONE_A + ZONE_D)   # zones that accept exactly 1 stop
-MULTI_STOP  = set(ZONE_B + ZONE_C)   # zones that accept 1 or 2 stops
+LORRY_VARIANTS = ["SMALL_LORRY_12U", "BIG_LORRY_16U"]
 
 # ---------------------------------------------------------------------------
 # Shared system state
@@ -47,11 +43,15 @@ def _agv(battery, rfid):
     )
 
 state = {
-    "agv": {1: _agv(87, "0001"), 2: _agv(62, "0050")},
-    "calls": [],        # list of call dicts
-    "next_action": {1: None, 2: None},   # pending load instruction per AGV
+    "agv": {
+        1: _agv(87, "0001"),
+        2: _agv(62, "0050"),
+        3: _agv(91, "0100"),
+    },
+    "calls": [],
+    "next_action": {1: None, 2: None, 3: None},
     "alarms": [],
-    "log": [],          # event log for machine simulator tab
+    "log": [],
 }
 
 # ---------------------------------------------------------------------------
@@ -82,60 +82,43 @@ def _serialize():
 # ---------------------------------------------------------------------------
 # Call injection (from machine simulator)
 # ---------------------------------------------------------------------------
-def add_call(machine: str, variant: int):
-    agv_id = MACHINE_TO_AGV.get(machine)
-    if not agv_id:
-        return False
+def add_call(line: str, lorry_variant: str):
     call = dict(
         id=str(uuid.uuid4())[:8],
-        machine=machine,
-        variant=variant,
-        agv=agv_id,
+        line=line,
+        lorry_variant=lorry_variant,
+        agv=None,
         status="QUEUED",
         created_at=time.time(),
     )
     with _lock:
         state["calls"].append(call)
-        _add_log(f"Call from {machine} · V{variant} → AGV-{agv_id}")
+        _add_log(f"Call from {line} · {lorry_variant.split('_')[0]}")
     _broadcast()
     return True
 
 # ---------------------------------------------------------------------------
-# Dispatcher tick — runs in background thread every second
+# Dispatcher tick — first-idle-wins, ascending AGV-ID tiebreak
 # ---------------------------------------------------------------------------
 def _dispatcher_tick():
     with _lock:
-        for agv_id in (1, 2):
-            agv = state["agv"][agv_id]
-            if agv["stage"] != "IDLE" or not agv["at_home"]:
+        for c in state["calls"]:
+            if c["status"] != "QUEUED":
                 continue
-            if state["next_action"][agv_id] is not None:
-                continue
-
-            pending = [c for c in state["calls"]
-                       if c["agv"] == agv_id and c["status"] == "QUEUED"]
-            if not pending:
-                continue
-
-            first = pending[0]
-            stops = [first["machine"]]
-            call_ids = [first["id"]]
-            variant = first["variant"]
-
-            # Zone B/C: batch a second call if available
-            if first["machine"] in MULTI_STOP and len(pending) > 1:
-                second = pending[1]
-                stops.append(second["machine"])
-                call_ids.append(second["id"])
-
-            for c in state["calls"]:
-                if c["id"] in call_ids:
+            for agv_id in (1, 2, 3):
+                agv = state["agv"][agv_id]
+                if (agv["stage"] == "IDLE"
+                        and agv["at_home"]
+                        and state["next_action"][agv_id] is None):
                     c["status"] = "ASSIGNED"
-
-            state["next_action"][agv_id] = {
-                "stops": stops, "variant": variant, "call_ids": call_ids
-            }
-            _add_log(f"AGV-{agv_id} assigned → {' + '.join(stops)} · V{variant}")
+                    c["agv"] = agv_id
+                    state["next_action"][agv_id] = {
+                        "line": c["line"],
+                        "lorry_variant": c["lorry_variant"],
+                        "call_id": c["id"],
+                    }
+                    _add_log(f"AGV-{agv_id} assigned → {c['line']} · {c['lorry_variant'].split('_')[0]}")
+                    break
 
 def _dispatcher_loop():
     while True:
@@ -147,89 +130,65 @@ def _dispatcher_loop():
             print(f"[dispatcher] {exc}")
 
 # ---------------------------------------------------------------------------
-# AGV trip simulation — started in its own thread on Depart press
+# AGV trip simulation (single stop, shorter timings)
 # ---------------------------------------------------------------------------
 def _simulate_trip(agv_id: int, action: dict):
-    stops    = action["stops"]
-    call_ids = action["call_ids"]
-    variant  = action["variant"]
+    line     = action["line"]
+    call_id  = action["call_id"]
+    variant  = action["lorry_variant"]
 
     def _set(**kwargs):
         with _lock:
             state["agv"][agv_id].update(kwargs)
 
-    def _set_call_status(cid, status):
+    def _set_call(status):
         with _lock:
             for c in state["calls"]:
-                if c["id"] == cid:
+                if c["id"] == call_id:
                     c["status"] = status
 
-    def _set_all_call_status(status):
+    def _complete_call():
         with _lock:
-            for c in state["calls"]:
-                if c["id"] in call_ids:
-                    c["status"] = status
-
-    def _complete_calls():
-        with _lock:
-            state["calls"] = [c for c in state["calls"] if c["id"] not in call_ids]
+            state["calls"] = [c for c in state["calls"] if c["id"] != call_id]
 
     def _run():
-        # Clear next_action, begin trip
         with _lock:
             state["next_action"][agv_id] = None
+
         _set(stage="EN_ROUTE", at_home=False,
-             position=f"→ {stops[0]}", task={"stops": stops, "variant": variant})
-        _set_all_call_status("IN-TRANSIT")
-        _add_log(f"AGV-{agv_id} departed → {stops[0]}")
-        _broadcast()
-
-        time.sleep(8)
-
-        # Arrive at stop 1
-        _set(stage="AT_LINE", position=stops[0],
-             last_rfid=f"RF_{stops[0].replace('-','_')}")
-        _set_call_status(call_ids[0], "AT-LINE")
-        _add_log(f"AGV-{agv_id} arrived at {stops[0]}")
+             position=f"→ {line}", task={"line": line, "lorry_variant": variant})
+        _set_call("IN-TRANSIT")
+        _add_log(f"AGV-{agv_id} departed → {line}")
         _broadcast()
 
         time.sleep(5)
 
-        if len(stops) > 1:
-            # Head to stop 2
-            _set(stage="EN_ROUTE", position=f"→ {stops[1]}")
-            _set_call_status(call_ids[0], "COMPLETED")
-            _broadcast()
-            time.sleep(6)
-
-            # Arrive at stop 2
-            _set(stage="AT_LINE", position=stops[1],
-                 last_rfid=f"RF_{stops[1].replace('-','_')}")
-            _set_call_status(call_ids[1], "AT-LINE")
-            _add_log(f"AGV-{agv_id} arrived at {stops[1]}")
-            _broadcast()
-            time.sleep(5)
-
-        # Return home
-        _set(stage="RETURNING", position="→ HOME")
-        _set_all_call_status("RETURNING")
+        _set(stage="AT_LINE", position=line,
+             last_rfid=f"RF_{line.replace('-','_').replace('.','_')}")
+        _set_call("AT-LINE")
+        _add_log(f"AGV-{agv_id} arrived at {line}")
         _broadcast()
-        time.sleep(8)
 
-        # Home
+        time.sleep(3)
+
+        _set(stage="RETURNING", position="→ HOME")
+        _set_call("RETURNING")
+        _broadcast()
+
+        time.sleep(5)
+
         with _lock:
             state["agv"][agv_id].update(
                 stage="IDLE", position="HOME", at_home=True, task=None,
                 last_rfid="HOME",
-                battery=max(5, state["agv"][agv_id]["battery"] - random.randint(1, 4)),
+                battery=max(5, state["agv"][agv_id]["battery"] - random.randint(1, 3)),
                 lateral_error=random.randint(-5, 5),
             )
-        _complete_calls()
+        _complete_call()
         _add_log(f"AGV-{agv_id} returned home")
         _broadcast()
 
-    t = threading.Thread(target=_run, daemon=True)
-    t.start()
+    threading.Thread(target=_run, daemon=True).start()
 
 # ---------------------------------------------------------------------------
 # Routes
@@ -240,32 +199,29 @@ def home():
 
 @app.route("/agv/<int:agv_id>")
 def agv_page(agv_id):
-    if agv_id not in (1, 2):
+    if agv_id not in (1, 2, 3):
         return "Invalid AGV ID", 404
     return render_template("agv.html", agv_id=agv_id)
 
 @app.route("/machine")
 def machine_page():
-    zones = {
-        "A": ZONE_A, "B": ZONE_B, "C": ZONE_C, "D": ZONE_D
-    }
-    return render_template("machine.html", zones=zones)
+    return render_template("machine.html", lines=LINES)
 
 @app.route("/api/call", methods=["POST"])
 def api_call():
     data = request.get_json(force=True)
-    machine = data.get("machine", "").strip()
-    variant = int(data.get("variant", 0))
-    if not machine or variant not in range(1, 7):
+    line    = data.get("line", "").strip()
+    variant = data.get("lorry_variant", "").strip()
+    if not line or line not in LINES or variant not in LORRY_VARIANTS:
         return jsonify(ok=False, reason="bad input"), 400
-    ok = add_call(machine, variant)
-    return jsonify(ok=ok)
+    add_call(line, variant)
+    return jsonify(ok=True)
 
 @app.route("/api/depart", methods=["POST"])
 def api_depart():
-    data = request.get_json(force=True)
+    data   = request.get_json(force=True)
     agv_id = int(data.get("agv_id", 0))
-    if agv_id not in (1, 2):
+    if agv_id not in (1, 2, 3):
         return jsonify(ok=False, reason="invalid agv"), 400
     with _lock:
         action = state["next_action"].get(agv_id)
@@ -296,10 +252,11 @@ if __name__ == "__main__":
     t = threading.Thread(target=_dispatcher_loop, daemon=True)
     t.start()
     print("=" * 60)
-    print("  i-Prime Demo Server")
+    print("  i-Prime Demo Server — Goodyear")
     print("  Home HMI  →  http://localhost:5000/")
     print("  AGV-1 HMI →  http://localhost:5000/agv/1")
     print("  AGV-2 HMI →  http://localhost:5000/agv/2")
+    print("  AGV-3 HMI →  http://localhost:5000/agv/3")
     print("  Machine   →  http://localhost:5000/machine")
     print("=" * 60)
     socketio.run(app, host="0.0.0.0", port=5000, debug=False)

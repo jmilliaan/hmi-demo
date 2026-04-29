@@ -1,0 +1,167 @@
+{
+  "project": "i-Prime AGV System — HMI Design Spec",
+  "revision": "v0.1",
+  "date": "2026-04",
+
+  "system": {
+    "machines": 38,
+    "zones": {
+      "A": "MRU 1–4",
+      "B": "BTU 9–24",
+      "C": "BTU 1–8, STU 1–6",
+      "D": "STU 7–10"
+    },
+    "agvs": {
+      "AGV-1": "Loop A+B",
+      "AGV-2": "Loop C+D",
+      "failover": false
+    },
+    "calling_stations": {
+      "buttons_per_station": 6,
+      "total_di": 228,
+      "di_modules": "~8x 32-ch Modbus TCP",
+      "semantic": "button press = call + variant in one event"
+    },
+    "home_station_pc": {
+      "os": "Ubuntu 22",
+      "process": "iprime_master (asyncio): Modbus poll + dispatcher + MQTT client + Flask/WS + sqlite logger",
+      "services": [
+        "mosquitto.service — MQTT broker",
+        "iprime_master.service — main app",
+        "chromium-kiosk.service — kiosk on localhost:5000"
+      ],
+      "display": "10.4\" 1600x900 capacitive touch, glove-compatible, landscape"
+    },
+    "control_flow": "DI rising edge → Call object in queue → dispatcher MQTT dispatch cmd → AGV ack + execute. HMI is read-only view; never a peer."
+  },
+
+  "home_hmi": {
+    "tech": "Flask + Vue3 CDN (no build step) or htmx; WebSocket state push at 10 Hz or on-change; no auth",
+    "touch": "min 12mm×12mm (~85px) targets; min 18px body text; assume gloves",
+    "pages": {
+      "1_operations": {
+        "layout": "left: next-action panel + two AGV status cards; right: call queue (loop A+B, C+D) + alarm strip; persistent bottom nav 80px",
+        "next_action_panel": {
+          "content": "variant (120pt, colour-coded) + target AGV + destination(s) + DEPART button",
+          "depart_enabled_when": "AGV at home (RFID HOME tag + AGV at_home=true via MQTT)",
+          "idle_state": "WAITING in muted grey"
+        },
+        "call_queue_row": "line_id | variant | age mm:ss | state",
+        "call_states": ["QUEUED", "WAITING-PARTNER", "ASSIGNED", "IN-TRANSIT", "AT-LINE", "RETURNING"],
+        "row_age_tint": {"green": "<2min", "yellow": "2–5min", "red": ">5min"},
+        "long_press_row": "contextual menu: Cancel / Force-dispatch-alone",
+        "agv_card": "mode (colour-coded) + zone + battery (bar, warn@30%, alarm@15%) + speed",
+        "mode_colours": {"AUTO": "green", "MANUAL": "blue", "ARMED": "grey", "EMERGENCY": "red-flash", "DISCONNECTED": "dark-red"},
+        "alarm_strip": "active alarms only; tap to silence buzzer; visual clears on condition clear; icons: ⚠warn ✕fault ⓘinfo"
+      },
+      "2_manual_dispatch": {
+        "layout": "single-page left-to-right wizard: 1.AGV → 2.Destinations (grid, loop-filtered) → 3.Variant (V1–V6) → 4.DISPATCH button",
+        "validation": "zones A/D: exactly 1 stop; zones B/C: 1–2 stops; out-of-loop stops greyed",
+        "abort_section": "shows active dispatch + [CANCEL DISPATCH] [RECALL HOME] buttons",
+        "agv_control": "[FORCE TO MANUAL] (software cmd; requires physical switch flip) | [RETURN HOME] (special dispatch, no stops)"
+      },
+      "3_diagnostics_kpis": {
+        "left": "shift cycle counts per loop; variant histogram; AGV uptime/availability%; system health (Modbus banks, MQTT, dispatcher loop ms)",
+        "right": "AGV telemetry selector (AGV-1/2); full AMRState snapshot; alarm history last 50 events",
+        "data_source": "sqlite event log, per-shift, no MES/ERP integration v1"
+      }
+    },
+    "alarm_matrix": [
+      {"source": "AGV emergency", "sev": "FAULT", "visual": "red flash modal", "audio": true, "andon": "red-flash"},
+      {"source": "AGV MQTT disconnect", "sev": "FAULT", "visual": "red banner", "audio": true, "andon": "red-flash"},
+      {"source": "battery<15%", "sev": "FAULT", "visual": "red banner", "audio": true, "andon": "red-flash"},
+      {"source": "battery<30%", "sev": "WARN", "visual": "yellow icon", "audio": false, "andon": "amber"},
+      {"source": "Modbus DI offline", "sev": "FAULT", "visual": "red banner", "audio": true, "andon": "red-flash"},
+      {"source": "call age>5min", "sev": "WARN", "visual": "yellow row", "audio": false, "andon": "amber"},
+      {"source": "call age>10min", "sev": "FAULT", "visual": "red row", "audio": true, "andon": "amber-flash"},
+      {"source": "dispatch no-ack", "sev": "WARN", "visual": "yellow toast", "audio": false, "andon": "none"}
+    ],
+    "andon": "3-colour tower (green/amber/red) + buzzer; wired via DO on Modbus bus; dispatcher writes on highest alarm level"
+  },
+
+  "agv_hmi": {
+    "runtime": "Chromium-kiosk on AGV PC (Ubuntu 22); Flask app reading AMRState via Unix socket or local MQTT topic",
+    "normal_use": "physical pendant + station buttons; HMI for maintenance/commissioning/troubleshooting only",
+    "pages": {
+      "1_status": "mode indicator; tape/lateral-error gauge; last RFID; current task+stage; battery bar+voltage; L/R wheel RPM; PID output; link health (CAN, Modbus DIO, Modbus AO, RFID, MQTT, pendant); active alarms",
+      "2_manual_control": {
+        "gate": "physical mode switch = MANUAL AND (pendant detected OR Maintenance Mode toggle active)",
+        "jog": "8-direction momentary buttons (FWD/REV/L/R/diagonals); pusher UP/DOWN/TOGGLE (conditional on hardware); manual speed V_MAN configurable",
+        "safety": "WebSocket heartbeat; >200ms silence → control stack forces idle"
+      },
+      "3_parameters": "read-only by default; Edit gated by Maintenance Mode; PID gains per speed mode; speed targets; accel ramp; V_RED coefficients; RFID command map; saves to parameters.json + soft-reload control stack",
+      "4_io_alarms": "live DI/DO bits (16 each) + AO voltages + raw CAN frames + last RFID; labelled by system_summary.json symbolic names; alarm log last 100 events with severity filter; CSV export"
+    }
+  },
+
+  "comms": {
+    "mqtt_topics": [
+      {"topic": "agv/<id>/telemetry", "dir": "AGV→home", "qos": 0, "retain": true, "payload": "AMRState snapshot 10Hz"},
+      {"topic": "agv/<id>/event", "dir": "AGV→home", "qos": 1, "retain": false, "payload": "mode change / alarm"},
+      {"topic": "agv/<id>/cmd/dispatch", "dir": "home→AGV", "qos": 1, "retain": false, "payload": "{stops, variant, dispatch_id}"},
+      {"topic": "agv/<id>/cmd/abort", "dir": "home→AGV", "qos": 1, "retain": false, "payload": "{dispatch_id, reason}"},
+      {"topic": "agv/<id>/cmd/return_home", "dir": "home→AGV", "qos": 1, "retain": false, "payload": "{}"},
+      {"topic": "agv/<id>/cmd/force_manual", "dir": "home→AGV", "qos": 1, "retain": false, "payload": "{}"},
+      {"topic": "agv/<id>/ack", "dir": "AGV→home", "qos": 1, "retain": false, "payload": "{dispatch_id, status, ts}"},
+      {"topic": "agv/<id>/heartbeat", "dir": "AGV→home", "qos": 0, "retain": false, "payload": "1Hz"},
+      {"topic": "home/status", "dir": "home→AGVs", "qos": 0, "retain": true, "payload": "{shift, ts}"}
+    ],
+    "dispatch_id": "UUID per call; echoed on every AGV ack/event for dedup/ordering",
+    "modbus_polling": {
+      "rate": "20Hz per module (50ms cycle)",
+      "edge_detection": "XOR+AND bitmask per cycle",
+      "debounce": "10ms hardware filter on DI module; industrial buttons rated ≥100ms bounce"
+    },
+    "websocket": {
+      "endpoint": "/ws",
+      "state_push": {"type": "state", "fields": ["ts", "queues", "agv1", "agv2", "alarms"], "rate": "10Hz or on-change"},
+      "cmd": {"type": "cmd", "fields": ["action", "agv", "stops", "variant"]}
+    }
+  },
+
+  "call_lifecycle": {
+    "states": ["QUEUED", "WAITING_PARTNER", "ASSIGNED", "AT_HOME_LOAD", "EN_ROUTE", "AT_LINE_1", "EN_ROUTE_2", "AT_LINE_2", "RETURNING", "COMPLETED", "CANCELLED"],
+    "transitions": [
+      "button press → QUEUED",
+      "zone B/C + AGV free → WAITING_PARTNER; zone A/D + AGV free → ASSIGNED",
+      "partner arrives OR 5-min timeout → ASSIGNED",
+      "AGV idle at home → AT_HOME_LOAD (next-action shown)",
+      "operator presses Depart → EN_ROUTE",
+      "RFID at stop 1 → AT_LINE_1",
+      "line op depart (2-stop) → EN_ROUTE_2 → AT_LINE_2",
+      "line op depart (1-stop or last stop) → RETURNING",
+      "RFID HOME → COMPLETED",
+      "manual cancel from any pre-transit state → CANCELLED"
+    ],
+    "logging": "every transition timestamped to sqlite; raw data for KPI cycle counts and timing"
+  },
+
+  "tech_stack": {
+    "backend": "Python 3.10, asyncio, pymodbus≥3, paho-mqtt, Flask",
+    "frontend": "Vue3 CDN or htmx + vanilla JS (no Node toolchain on production PC)",
+    "charting": "Chart.js",
+    "ipc": "WebSocket (websockets lib) for HMI; MQTT for AGVs",
+    "broker": "Mosquitto",
+    "logging": "sqlite3 (events) + rotating CSV (raw telemetry, optional)",
+    "service_mgmt": "systemd",
+    "kiosk": "chromium-browser --kiosk"
+  },
+
+  "open_questions": [
+    "Calling-station LED feedback: DO per button (228 extra DO points) vs tactile-only — decision needed before hardware procurement",
+    "AGV WiFi loss mid-trip: QoS1 abort queued by broker; policy needed if abort arrives post-completion",
+    "End-of-shift cleanup: unfinished trolleys to Store-After-Boiacca — needs 'shift end' manual dispatch mode",
+    "Pusher mechanism: present on i-Prime AGVs? Software control needed? HMI has reserved space but impl conditional",
+    "Andon DO bus: if DI modules are read-only, a separate DO module is required — wiring decision",
+    "Display procurement: verify 10.4\" 1600x900 candidate is glove-compatible and IP54+ rated",
+    "Operator training: 15-min walkthrough target — validate via paper prototype before coding"
+  ],
+
+  "phasing": {
+    "phase1_backbone_2-3wk": ["Modbus DI poller (228 inputs verified)", "Mosquitto + AGV telemetry publisher", "Dispatcher state machine (no UI)", "sqlite event log", "WebSocket stub"],
+    "phase2_home_hmi_v1_2wk": ["Page 1 Operations (read-only)", "Andon DO control", "Alarm strip"],
+    "phase3_manual_agv_hmi_2wk": ["Page 2 Manual Dispatch", "AGV HMI Page 1 Status + Page 4 I/O Monitor", "AGV HMI Page 2 Manual Control (gated)"],
+    "phase4_kpis_polish_1-2wk": ["Page 3 Diagnostics & KPIs", "AGV HMI Page 3 Parameters", "Glove-touch usability testing", "End-of-shift workflow"],
+    "total_estimate": "7–10 weeks, single dev; excludes AGV commissioning, DI bank wiring, plant integration, training"
+  }
+}

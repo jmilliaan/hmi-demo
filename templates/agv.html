@@ -8,23 +8,29 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  --chrome:  #b0b8c0;
-  --panel:   #e8ecef;
-  --surface: #f4f6f8;
-  --white:   #ffffff;
-  --border:  #707880;
+  --chrome:     #b0b8c0;
+  --panel:      #e8ecef;
+  --surface:    #f4f6f8;
+  --white:      #ffffff;
+  --border:     #707880;
   --border-hvy: #3a3f44;
-  --txt:     #101418;
-  --txt-dim: #505860;
-  --txt-lbl: #303840;
+  --txt:        #101418;
+  --txt-dim:    #505860;
+  --txt-lbl:    #303840;
 
-  --green:   #00a020;
-  --amber:   #e07800;
-  --red:     #cc0000;
-  --blue:    #005ab4;
-  --gray:    #707880;
+  --green:  #00a020;
+  --amber:  #e07800;
+  --red:    #cc0000;
+  --blue:   #005ab4;
+  --gray:   #707880;
 
-  --accent:  {{ '#005ab4' if agv_id == 1 else '#a04000' }};
+  {% if agv_id == 1 %}
+  --accent: #005ab4;
+  {% elif agv_id == 2 %}
+  --accent: #a04000;
+  {% else %}
+  --accent: #007830;
+  {% endif %}
 }
 
 html, body { height: 100%; background: var(--chrome);
@@ -148,8 +154,8 @@ html, body { height: 100%; background: var(--chrome);
 .nav-btn.active { background: var(--accent); color: #fff; }
 .nav-btn:hover:not(.active) { background: #c8d0d8; color: var(--txt); }
 
-.vc-1{color:#005ab4} .vc-2{color:#007830} .vc-3{color:#a04000}
-.vc-4{color:#6a0080} .vc-5{color:#a01818} .vc-6{color:#805000}
+.lorry-small { color: #005ab4; }
+.lorry-big   { color: #a04000; }
 </style>
 </head>
 <body>
@@ -157,7 +163,7 @@ html, body { height: 100%; background: var(--chrome);
 <div class="titlebar">
   <div style="display:flex;align-items:baseline;gap:4px">
     <span class="title">i-Prime &mdash; <span class="accent">AGV-{{ agv_id }}</span></span>
-    <span class="sub">Loop {{ 'A+B' if agv_id == 1 else 'C+D' }} &nbsp;·&nbsp; Onboard HMI &nbsp;·&nbsp; Demo</span>
+    <span class="sub">Onboard HMI &nbsp;·&nbsp; Goodyear &nbsp;·&nbsp; Demo</span>
   </div>
   <div class="clock" id="clock">--:--:--</div>
 </div>
@@ -294,30 +300,28 @@ function setBattery(v, pct) {
 }
 
 function renderTask(agv) {
-  const stage = document.getElementById('task-stage');
+  const stage  = document.getElementById('task-stage');
   const detail = document.getElementById('task-detail');
   stage.textContent = agv.stage;
-  stage.className = (agv.stage === 'IDLE') ? 'task-stage task-idle' : 'task-stage task-run';
+  stage.className   = (agv.stage === 'IDLE') ? 'task-stage task-idle' : 'task-stage task-run';
   if (!agv.task) {
     detail.innerHTML = '<span style="color:var(--gray);font-style:italic">No active task</span>';
     return;
   }
-  const vc = ['','vc-1','vc-2','vc-3','vc-4','vc-5','vc-6'];
-  const vn = ['','V1','V2','V3','V4','V5','V6'];
-  const v  = agv.task.variant || 0;
+  const v = agv.task.lorry_variant || '';
+  const vLabel = v === 'SMALL_LORRY_12U' ? 'SMALL' : 'BIG';
+  const vCls   = v === 'SMALL_LORRY_12U' ? 'lorry-small' : 'lorry-big';
   detail.innerHTML = `
     <div style="font-size:16px;font-weight:bold;margin-bottom:6px">
-      Variant: <span class="${vc[v]}" style="font-size:20px">${vn[v]}</span>
+      Lorry: <span class="${vCls}" style="font-size:20px">${vLabel}</span>
     </div>
     <div style="font-size:14px;color:var(--txt-lbl);font-weight:bold">
-      Stops: ${agv.task.stops.join(' &rarr; ')}
+      Destination: ${agv.task.line || '—'}
     </div>
     <div style="font-size:14px;color:var(--txt-dim);margin-top:4px">
       Position: ${agv.position}
     </div>`;
 }
-
-let _simRpm = {l:0, r:0};
 
 socket.on('state', function(data) {
   const agv = data.agv[AGV_ID];
@@ -335,10 +339,10 @@ socket.on('state', function(data) {
   setBattery(44 + (agv.battery / 100) * 10, agv.battery);
 
   const moving = agv.stage === 'EN_ROUTE' || agv.stage === 'RETURNING';
-  _simRpm.l = moving ? 1200 + Math.round(Math.random() * 80) : 0;
-  _simRpm.r = moving ? _simRpm.l - (_simLat * 3) : 0;
-  document.getElementById('l-rpm').textContent = _simRpm.l;
-  document.getElementById('r-rpm').textContent = _simRpm.r;
+  const rpmL = moving ? 1200 + Math.round(Math.random() * 80) : 0;
+  const rpmR = moving ? rpmL - (_simLat * 3) : 0;
+  document.getElementById('l-rpm').textContent = rpmL;
+  document.getElementById('r-rpm').textContent = rpmR;
 
   const alarmsEl = document.getElementById('agv-alarms');
   const myA = (data.alarms || []).filter(a => a.agv === AGV_ID);
@@ -347,7 +351,6 @@ socket.on('state', function(data) {
     : '<div class="alarm-none">&#10003; None</div>';
 });
 
-// Simulate tape drift
 setInterval(() => {
   const drift = _simLat + (Math.random() - 0.5) * 4;
   setLateral(Math.round(Math.max(-25, Math.min(25, drift))));

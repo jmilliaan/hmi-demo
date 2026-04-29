@@ -16,16 +16,16 @@
   --txt:        #101418;
   --txt-dim:    #505860;
   --txt-lbl:    #303840;
-  --green:      #00a020;
-  --amber:      #e07800;
-  --red:        #cc0000;
-  --blue:       #005ab4;
-  --gray:       #707880;
+  --small:      #005ab4;
+  --big:        #a04000;
 }
 
-html, body { min-height: 100%; background: var(--chrome);
-  font-family: Arial, Helvetica, sans-serif; font-size: 15px; color: var(--txt); }
-body { display: flex; flex-direction: column; }
+html, body {
+  height: 100%; background: var(--chrome);
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 15px; color: var(--txt);
+  display: flex; flex-direction: column; overflow: hidden;
+}
 
 /* ── Title bar ──────────────────────────────────────────── */
 .titlebar {
@@ -37,363 +37,121 @@ body { display: flex; flex-direction: column; }
 .sub   { font-size: 12px; color: #b0b8c0; margin-left: 12px; }
 .clock { font-size: 24px; font-weight: bold; font-family: 'Courier New', monospace; }
 
-/* ── Layout ─────────────────────────────────────────────── */
-.layout { flex: 1; display: flex; gap: 5px; padding: 8px; overflow: hidden; }
-.col-left  { flex: 1; display: flex; flex-direction: column; gap: 8px; }
-
-/* ── Box ─────────────────────────────────────────────────── */
-.box {
-  background: var(--surface); border: 2px solid var(--border);
-  border-radius: 4px; padding: 12px 14px;
-}
-.box-title {
-  font-size: 12px; font-weight: bold; text-transform: uppercase; letter-spacing: 2px;
-  color: var(--txt-lbl); background: var(--panel); border-bottom: 2px solid var(--border);
-  padding: 5px 14px; margin: -12px -14px 12px -14px; border-radius: 2px 2px 0 0;
+/* ── Centre panel ───────────────────────────────────────── */
+.centre {
+  flex: 1; display: flex; align-items: center; justify-content: center;
 }
 
-/* ── Machine selector area ───────────────────────────────── */
-.selector-row {
-  display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap;
+.station {
+  background: var(--surface); border: 3px solid var(--border-hvy);
+  border-radius: 10px; padding: 28px 36px;
+  display: flex; flex-direction: column; align-items: center; gap: 20px;
+  box-shadow: 0 4px 12px rgba(0,0,0,.25);
+  min-width: 280px;
 }
-.selector-group { display: flex; flex-direction: column; gap: 5px; }
-.selector-group label {
-  font-size: 13px; font-weight: bold; text-transform: uppercase;
-  letter-spacing: 1px; color: var(--txt-lbl);
-}
-.selector-group select {
-  font-family: inherit; font-size: 16px; font-weight: bold;
-  padding: 8px 12px; border: 2px solid var(--border); border-radius: 4px;
-  background: var(--white); color: var(--txt); cursor: pointer;
-  min-width: 160px; box-shadow: 0 2px 0 var(--border-hvy);
-}
-.selector-group select:focus { outline: 3px solid var(--blue); border-color: var(--blue); }
 
-.toggle-group { display: flex; flex-direction: column; gap: 5px; }
-.toggle-group label { font-size: 13px; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; color: var(--txt-lbl); }
-.toggle-btn {
-  padding: 9px 16px; border: 2px solid var(--border); border-radius: 4px;
-  background: var(--panel); color: var(--txt-dim);
-  font-family: inherit; font-size: 14px; font-weight: bold; cursor: pointer;
-  box-shadow: 0 2px 0 var(--border-hvy); transition: background .1s;
-  white-space: nowrap;
-}
-.toggle-btn.on {
-  background: #d0e8ff; border-color: var(--blue); color: var(--blue);
-  box-shadow: 0 2px 0 #003080;
-}
-.toggle-btn:active { box-shadow: none; transform: translateY(2px); }
-
-.agv-badge {
-  display: inline-block; padding: 4px 10px; border-radius: 3px;
-  font-size: 13px; font-weight: bold; border: 2px solid;
-}
-.agv1-badge { background: #dce8f8; border-color: #005ab4; color: #003070; }
-.agv2-badge { background: #fdf0de; border-color: #a04000; color: #5a2000; }
-
-/* ── Physical button panel ───────────────────────────────── */
-.btn-panel {
-  flex: 1; background: #c8d0d8;
-  border: 4px solid var(--border-hvy); border-radius: 10px;
-  padding: 24px; display: flex; flex-direction: column;
-  align-items: center; justify-content: center; gap: 20px;
-  box-shadow: inset 0 3px 8px rgba(0,0,0,.25), 0 4px 0 #1a1f24;
-}
-.btn-panel-label {
+/* ── Line selector ──────────────────────────────────────── */
+.station label {
   font-size: 12px; font-weight: bold; text-transform: uppercase;
-  letter-spacing: 3px; color: var(--txt-dim); text-align: center;
+  letter-spacing: 2px; color: var(--txt-lbl); align-self: stretch; text-align: left;
 }
 
-.pushbtn-row { display: flex; gap: 28px; justify-content: center; }
+.station select {
+  font-family: inherit; font-size: 17px; font-weight: bold;
+  padding: 10px 14px; border: 2px solid var(--border); border-radius: 6px;
+  background: var(--white); color: var(--txt); cursor: pointer;
+  width: 100%; box-shadow: 0 2px 0 var(--border-hvy);
+}
+.station select:focus { outline: 3px solid var(--small); border-color: var(--small); }
 
-/* Industrial pushbutton */
-.pushbtn-wrap { display: flex; flex-direction: column; align-items: center; gap: 8px; }
-.pushbtn-label { font-size: 13px; font-weight: bold; color: var(--txt-lbl); letter-spacing: 1px; }
+/* ── Variant buttons ────────────────────────────────────── */
+.var-btn {
+  width: 100%; padding: 22px 16px;
+  border: 3px solid; border-radius: 8px;
+  font-family: inherit; font-size: 22px; font-weight: bold; cursor: pointer;
+  text-transform: uppercase; letter-spacing: 2px;
+  transition: filter .1s, transform .1s;
+}
+.var-btn:disabled { opacity: .38; cursor: not-allowed; box-shadow: none !important; }
+.var-btn:not(:disabled):hover  { filter: brightness(1.08); }
+.var-btn:not(:disabled):active { transform: translateY(3px); box-shadow: none !important; }
 
-.pushbtn {
-  position: relative; width: 84px; height: 84px;
-  border-radius: 50%; cursor: pointer; border: none; background: none;
-  padding: 0;
-  /* bezel ring */
-  box-shadow:
-    0 0 0 6px #909090,
-    0 0 0 9px #606060,
-    0 6px 0 9px #404040,
-    0 0 0 11px #808080;
-  transition: transform .08s, box-shadow .08s;
+.var-btn.small {
+  background: #dce8f8; border-color: var(--small); color: var(--small);
+  box-shadow: 0 4px 0 #002060;
 }
-.pushbtn:disabled {
-  cursor: not-allowed; opacity: .45;
+.var-btn.big {
+  background: #fdf0de; border-color: var(--big); color: var(--big);
+  box-shadow: 0 4px 0 #5a2000;
 }
-/* dome */
-.pushbtn::before {
-  content: ''; position: absolute; inset: 0; border-radius: 50%;
-  background: radial-gradient(circle at 35% 35%, rgba(255,255,255,.55) 0%, transparent 65%),
-              var(--dome-color);
-  box-shadow: inset 0 -4px 8px rgba(0,0,0,.3);
-}
-/* label inside dome */
-.pushbtn::after {
-  content: attr(data-label);
-  position: absolute; inset: 0; border-radius: 50%;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 20px; font-weight: bold; color: #fff;
-  text-shadow: 0 1px 3px rgba(0,0,0,.6);
-  font-family: Arial, sans-serif;
-}
-.pushbtn:not(:disabled):hover { transform: scale(1.04); }
-.pushbtn:not(:disabled):active {
-  transform: translateY(3px) scale(.97);
-  box-shadow:
-    0 0 0 6px #909090,
-    0 0 0 9px #606060,
-    0 3px 0 9px #404040,
-    0 0 0 11px #808080;
-}
-.pushbtn.lit::before {
-  box-shadow: inset 0 -4px 8px rgba(0,0,0,.2), 0 0 18px 6px var(--dome-glow);
-}
-.pushbtn.fired { animation: dome-flash .5s ease; }
-@keyframes dome-flash {
-  0%   { filter: brightness(2); }
-  100% { filter: brightness(1); }
-}
-
-/* Dome colour per variant */
-.v1 { --dome-color: #1a5aaa; --dome-glow: rgba(60,140,255,.8); }
-.v2 { --dome-color: #1a7a30; --dome-glow: rgba(60,200,80,.8);  }
-.v3 { --dome-color: #b06000; --dome-glow: rgba(255,160,40,.8); }
-.v4 { --dome-color: #7a00a0; --dome-glow: rgba(180,80,255,.8); }
-.v5 { --dome-color: #aa1010; --dome-glow: rgba(255,80,80,.8);  }
-.v6 { --dome-color: #606060; --dome-glow: rgba(160,160,160,.8);}
-
+.var-btn.fired { animation: flash .35s ease; }
+@keyframes flash { 0% { filter: brightness(2.2); } 100% { filter: brightness(1); } }
 </style>
 </head>
 <body>
 
 <div class="titlebar">
   <div>
-    <span class="title">i-Prime &mdash; Machine Calling Simulator</span>
-    <span class="sub">Simulates the 6-button calling station at each line</span>
+    <span class="title">i-Prime &mdash; Calling Station Simulator</span>
+    <span class="sub">Goodyear</span>
   </div>
   <div class="clock" id="clock">--:--:--</div>
 </div>
 
-<div class="layout">
+<div class="centre">
+  <div class="station">
 
-  <!-- ── Left column ── -->
-  <div class="col-left">
+    <label>Line</label>
+    <select id="sel-line">
+      <option value="">— select line —</option>
+      {% for line in lines %}
+      <option value="{{ line }}">{{ line }}</option>
+      {% endfor %}
+    </select>
 
-    <!-- Machine selector -->
-    <div class="box">
-      <div class="box-title">Calling Station Selection</div>
-      <div class="selector-row">
+    <button class="var-btn small" id="btn-small" disabled onclick="sendCall('SMALL_LORRY_12U', this)">
+      &#9651;&nbsp; SMALL &nbsp;12U
+    </button>
 
-        <div class="selector-group">
-          <label>Machine (Stop 1)</label>
-          <select id="sel-m1" onchange="onM1Change()">
-            <option value="">— select machine —</option>
-            <optgroup label="Zone A — AGV-1 (MRU)">
-              {% for m in zones['A'] %}<option value="{{ m }}" data-agv="1" data-zone="A">{{ m }}</option>{% endfor %}
-            </optgroup>
-            <optgroup label="Zone B — AGV-1 (BTU 9-24)">
-              {% for m in zones['B'] %}<option value="{{ m }}" data-agv="1" data-zone="B">{{ m }}</option>{% endfor %}
-            </optgroup>
-            <optgroup label="Zone C — AGV-2 (BTU 1-8 + STU 1-6)">
-              {% for m in zones['C'] %}<option value="{{ m }}" data-agv="2" data-zone="C">{{ m }}</option>{% endfor %}
-            </optgroup>
-            <optgroup label="Zone D — AGV-2 (STU 7-10)">
-              {% for m in zones['D'] %}<option value="{{ m }}" data-agv="2" data-zone="D">{{ m }}</option>{% endfor %}
-            </optgroup>
-          </select>
-        </div>
+    <button class="var-btn big" id="btn-big" disabled onclick="sendCall('BIG_LORRY_16U', this)">
+      &#9650;&nbsp; BIG &nbsp;16U
+    </button>
 
-        <div class="toggle-group">
-          <label>Second Stop</label>
-          <button class="toggle-btn" id="toggle-2nd" onclick="toggleSecond()" disabled>
-            + Add Second Stop
-          </button>
-        </div>
-
-        <div class="selector-group" id="m2-group" style="display:none">
-          <label>Machine (Stop 2)</label>
-          <select id="sel-m2">
-            <option value="">— select —</option>
-          </select>
-        </div>
-
-        <div style="align-self:flex-end;padding-bottom:4px">
-          <span id="agv-badge" style="display:none" class="agv-badge"></span>
-        </div>
-
-      </div>
-    </div>
-
-    <!-- Physical button panel -->
-    <div class="btn-panel">
-      <div class="btn-panel-label">Trolley Variant</div>
-
-      <div class="pushbtn-row">
-        <div class="pushbtn-wrap">
-          <button class="pushbtn v1" data-label="V1" data-variant="1" disabled onclick="pressButton(this)"></button>
-          <span class="pushbtn-label">V1</span>
-        </div>
-        <div class="pushbtn-wrap">
-          <button class="pushbtn v2" data-label="V2" data-variant="2" disabled onclick="pressButton(this)"></button>
-          <span class="pushbtn-label">V2</span>
-        </div>
-        <div class="pushbtn-wrap">
-          <button class="pushbtn v3" data-label="V3" data-variant="3" disabled onclick="pressButton(this)"></button>
-          <span class="pushbtn-label">V3</span>
-        </div>
-      </div>
-
-      <div class="pushbtn-row">
-        <div class="pushbtn-wrap">
-          <button class="pushbtn v4" data-label="V4" data-variant="4" disabled onclick="pressButton(this)"></button>
-          <span class="pushbtn-label">V4</span>
-        </div>
-        <div class="pushbtn-wrap">
-          <button class="pushbtn v5" data-label="V5" data-variant="5" disabled onclick="pressButton(this)"></button>
-          <span class="pushbtn-label">V5</span>
-        </div>
-        <div class="pushbtn-wrap">
-          <button class="pushbtn v6" data-label="V6" data-variant="6" disabled onclick="pressButton(this)"></button>
-          <span class="pushbtn-label">V6</span>
-        </div>
-      </div>
-
-      <div class="btn-panel-label" id="btn-hint" style="color:#808890">
-        Select a machine above to enable buttons
-      </div>
-    </div>
-
-  </div><!-- /col-left -->
-
-
-</div><!-- /layout -->
+  </div>
+</div>
 
 <script>
-/* Machine data injected from Jinja */
-const ZONES = {
-  A: {{ zones['A'] | tojson }},
-  B: {{ zones['B'] | tojson }},
-  C: {{ zones['C'] | tojson }},
-  D: {{ zones['D'] | tojson }},
-};
-const AGV1_MACHINES = new Set([...ZONES.A, ...ZONES.B]);
-const AGV2_MACHINES = new Set([...ZONES.C, ...ZONES.D]);
-const MULTI_STOP    = new Set([...ZONES.B, ...ZONES.C]);
-
-let secondActive = false;
-
 setInterval(() => {
-  document.getElementById('clock').textContent = new Date().toTimeString().slice(0,8);
+  document.getElementById('clock').textContent = new Date().toTimeString().slice(0, 8);
 }, 500);
 
-/* ── Machine 1 selection ─────────────────────────────────── */
-function onM1Change() {
-  const sel = document.getElementById('sel-m1');
-  const opt = sel.options[sel.selectedIndex];
-  const machine = sel.value;
-  const agv     = opt.dataset ? opt.dataset.agv : null;
-  const zone    = opt.dataset ? opt.dataset.zone : null;
+document.getElementById('sel-line').addEventListener('change', function() {
+  const ok = !!this.value;
+  document.getElementById('btn-small').disabled = !ok;
+  document.getElementById('btn-big').disabled   = !ok;
+});
 
-  const isMulti = machine && MULTI_STOP.has(machine);
-
-  // Enable/disable second stop toggle
-  const toggleBtn = document.getElementById('toggle-2nd');
-  toggleBtn.disabled = !isMulti;
-  if (!isMulti && secondActive) {
-    secondActive = false;
-    toggleBtn.classList.remove('on');
-    toggleBtn.textContent = '+ Add Second Stop';
-    document.getElementById('m2-group').style.display = 'none';
-  }
-
-  // Populate machine 2 dropdown filtered to same AGV
-  if (isMulti) populateM2(agv, machine);
-
-  // AGV badge
-  const badge = document.getElementById('agv-badge');
-  if (machine && agv) {
-    badge.style.display = '';
-    badge.textContent   = `AGV-${agv}`;
-    badge.className     = `agv-badge agv${agv}-badge`;
-  } else {
-    badge.style.display = 'none';
-  }
-
-  // Enable/disable buttons
-  const enabled = !!machine;
-  document.querySelectorAll('.pushbtn').forEach(b => b.disabled = !enabled);
-  document.getElementById('btn-hint').textContent = enabled
-    ? (machine + (secondActive && document.getElementById('sel-m2').value
-        ? ' + ' + document.getElementById('sel-m2').value : ''))
-    : 'Select a machine above to enable buttons';
-}
-
-function populateM2(agv, exclude) {
-  const pool  = agv == 1 ? [...ZONES.A, ...ZONES.B] : [...ZONES.C, ...ZONES.D];
-  const sel2  = document.getElementById('sel-m2');
-  sel2.innerHTML = '<option value="">— none —</option>' +
-    pool.filter(m => m !== exclude)
-        .map(m => `<option value="${m}">${m}</option>`)
-        .join('');
-  sel2.onchange = updateHint;
-}
-
-function updateHint() {
-  const m1 = document.getElementById('sel-m1').value;
-  const m2 = secondActive ? document.getElementById('sel-m2').value : '';
-  document.getElementById('btn-hint').textContent =
-    m1 ? (m1 + (m2 ? ' + ' + m2 : '')) : 'Select a machine above to enable buttons';
-}
-
-function toggleSecond() {
-  secondActive = !secondActive;
-  const btn = document.getElementById('toggle-2nd');
-  btn.classList.toggle('on', secondActive);
-  btn.textContent = secondActive ? '✕ Single Stop Only' : '+ Add Second Stop';
-  document.getElementById('m2-group').style.display = secondActive ? '' : 'none';
-  if (!secondActive) document.getElementById('sel-m2').value = '';
-  updateHint();
-}
-
-/* ── Button press ────────────────────────────────────────── */
-function pressButton(btn) {
-  const variant  = parseInt(btn.dataset.variant);
-  const machine1 = document.getElementById('sel-m1').value;
-  const machine2 = secondActive ? document.getElementById('sel-m2').value : '';
-  if (!machine1) return;
+function sendCall(lorryVariant, btn) {
+  const line = document.getElementById('sel-line').value;
+  if (!line) return;
 
   btn.classList.remove('fired');
   void btn.offsetWidth;
   btn.classList.add('fired');
-  btn.classList.add('lit');
-  setTimeout(() => btn.classList.remove('lit'), 1200);
 
-  // Send call(s)
-  sendCall(machine1, variant);
-  if (machine2) sendCall(machine2, variant);
-}
-
-function sendCall(machine, variant) {
   fetch('/api/call', {
     method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({machine, variant})
+    body: JSON.stringify({line, lorry_variant: lorryVariant})
   });
 }
 
-/* Keyboard 1–6 */
+/* Keyboard: S = SMALL, B = BIG */
 document.addEventListener('keydown', e => {
-  const v = parseInt(e.key);
-  if (v >= 1 && v <= 6) {
-    const btn = document.querySelector(`.pushbtn[data-variant="${v}"]`);
-    if (btn && !btn.disabled) pressButton(btn);
-  }
+  const sel = document.getElementById('sel-line');
+  if (!sel.value) return;
+  if (e.key === 's' || e.key === 'S') sendCall('SMALL_LORRY_12U', document.getElementById('btn-small'));
+  if (e.key === 'b' || e.key === 'B') sendCall('BIG_LORRY_16U',   document.getElementById('btn-big'));
 });
-
 </script>
 </body>
 </html>
