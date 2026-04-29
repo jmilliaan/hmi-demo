@@ -5,14 +5,19 @@ Usage:
     python coord_picker.py <layout.png>
 
 Controls:
-    Left-click          → pin a point; fills in-window form (ID + heading)
-    Enter / Tab         → confirm entry and move to next field (ID → heading → save)
+    Left-click          → pin a point; fills in-window form (ID + type + heading)
+    Enter / Tab         → confirm entry and move to next field
+    Left/Right arrows   → cycle TYPE options while on the TYPE field
     Escape (in form)    → cancel pending entry
     Right-click         → undo last saved point
     Scroll wheel        → zoom in/out (zoom anchored to cursor)
     Middle-drag         → pan
     S (no form open)    → save coords.json
     Q / Esc (no form)   → quit
+
+Type options:
+    waypoint    — intermediate routing point the AGV passes through
+    seq_point   — stop where the AGV picks up or releases a trolley
 
 Heading convention:
     0°   → RIGHT  (+X)
@@ -21,7 +26,7 @@ Heading convention:
     270° → UP     (-Y)
 
 Output (coords.json):
-    { "STATION_ID": {"x": int, "y": int, "heading": float}, ... }
+    { "STATION_ID": {"x": int, "y": int, "type": str, "heading": float}, ... }
 """
 
 import pygame
@@ -31,22 +36,24 @@ import math
 from pathlib import Path
 
 # ── config ────────────────────────────────────────────────────────────────────
-CROSSHAIR_COLOR = (255,  50,  50)
-DOT_COLOR       = (255,  50,  50)
-PENDING_COLOR   = (255, 220,   0)
-LABEL_COLOR     = (255, 255,   0)
-GRID_COLOR      = ( 60,  60,  60)
-HUD_COLOR       = (200, 255, 200)
-FORM_BG         = ( 20,  20,  20)
-FORM_BORDER     = (120, 120, 120)
-FORM_ACTIVE     = ( 80, 160, 255)
-FONT_SIZE       = 14
-DOT_RADIUS      = 6
-GRID_STEP       = 100
-ZOOM_STEP       = 0.15
-ZOOM_MIN        = 0.1
-ZOOM_MAX        = 8.0
-OUTPUT_FILE     = "coords.json"
+DOT_COLOR_WAYPOINT  = (255, 200,  50)   # yellow
+DOT_COLOR_SEQ       = ( 80, 220, 120)   # green
+CROSSHAIR_COLOR     = (255,  50,  50)
+PENDING_COLOR       = (255, 220,   0)
+LABEL_COLOR         = (255, 255,   0)
+GRID_COLOR          = ( 60,  60,  60)
+HUD_COLOR           = (200, 255, 200)
+FORM_BG             = ( 20,  20,  20)
+FORM_BORDER         = (120, 120, 120)
+FORM_ACTIVE         = ( 80, 160, 255)
+FONT_SIZE           = 14
+DOT_RADIUS          = 6
+GRID_STEP           = 100
+ZOOM_STEP           = 0.15
+ZOOM_MIN            = 0.1
+ZOOM_MAX            = 8.0
+
+TYPE_OPTIONS = ["waypoint", "seq_point"]
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -119,9 +126,14 @@ def draw_heading_legend(surf, font_bold):
     surf.blit(title, title.get_rect(center=(cx, cy - r_outer - 10)))
 
 
-def draw_form(surf, font, font_bold, anchor_xy, field, id_buf, hdg_buf):
+def dot_color_for_type(pt_type):
+    return DOT_COLOR_SEQ if pt_type == "seq_point" else DOT_COLOR_WAYPOINT
+
+
+def draw_form(surf, font, font_bold, anchor_xy, field, id_buf, type_idx, hdg_buf):
+    """Three-row form: ID / TYPE / HDG."""
     sw, sh = surf.get_size()
-    fw, fh = 310, 80
+    fw, fh = 310, 110
     px, py = anchor_xy
     fx = min(px + 14, sw - fw - 4)
     fy = min(py + 14, sh - fh - 30)
@@ -133,35 +145,104 @@ def draw_form(surf, font, font_bold, anchor_xy, field, id_buf, hdg_buf):
     pygame.draw.rect(surf, FORM_BG,     (fx, fy, fw, fh), border_radius=6)
     pygame.draw.rect(surf, FORM_BORDER, (fx, fy, fw, fh), 1, border_radius=6)
 
-    lh      = fh // 2 - 2
-    labels  = ["ID :", "HDG:"]
-    buffers = [id_buf, hdg_buf]
-    hints   = ["e.g. VMI-1", "0/90/180/270"]
+    row_h   = 28
+    labels  = ["ID :", "TYPE:", "HDG:"]
+    current_type = TYPE_OPTIONS[type_idx]
 
-    for i, (lbl_text, buf, hint) in enumerate(zip(labels, buffers, hints)):
-        row_y      = fy + 6 + i * lh
-        active     = (i == field)
+    for i, lbl_text in enumerate(labels):
+        row_y  = fy + 6 + i * row_h
+        active = (i == field)
         border_col = FORM_ACTIVE if active else FORM_BORDER
 
-        surf.blit(font_bold.render(lbl_text, True, (200, 200, 200)), (fx + 6, row_y + 3))
+        surf.blit(font_bold.render(lbl_text, True, (200, 200, 200)), (fx + 6, row_y + 4))
 
-        box_x = fx + 46
-        box_w = fw - 52
-        pygame.draw.rect(surf, (35, 35, 35), (box_x, row_y, box_w, lh - 4), border_radius=3)
-        pygame.draw.rect(surf, border_col,   (box_x, row_y, box_w, lh - 4), 1, border_radius=3)
+        box_x = fx + 52
+        box_w = fw - 58
+        pygame.draw.rect(surf, (35, 35, 35), (box_x, row_y, box_w, row_h - 4), border_radius=3)
+        pygame.draw.rect(surf, border_col,   (box_x, row_y, box_w, row_h - 4), 1, border_radius=3)
 
-        display = buf if buf else hint
-        color   = (255, 255, 255) if buf else (90, 90, 90)
-        surf.blit(font.render(display, True, color), (box_x + 5, row_y + 3))
+        if i == 0:
+            display = id_buf if id_buf else "e.g. VMI-1"
+            color   = (255, 255, 255) if id_buf else (90, 90, 90)
+            surf.blit(font.render(display, True, color), (box_x + 5, row_y + 5))
+            if active:
+                cx_pos = box_x + 5 + font.size(id_buf)[0] + 1
+                if (pygame.time.get_ticks() // 500) % 2 == 0:
+                    pygame.draw.line(surf, (255, 255, 255),
+                                     (cx_pos, row_y + 4), (cx_pos, row_y + row_h - 8), 1)
 
-        if active:
-            cx_pos = box_x + 5 + font.size(buf)[0] + 1
-            if (pygame.time.get_ticks() // 500) % 2 == 0:
-                pygame.draw.line(surf, (255, 255, 255),
-                                 (cx_pos, row_y + 3), (cx_pos, row_y + lh - 7), 1)
+        elif i == 1:
+            type_color = dot_color_for_type(current_type)
+            surf.blit(font.render(f"◀ {current_type} ▶", True, type_color), (box_x + 5, row_y + 5))
 
-    hint_text = "Enter=next  Esc=cancel" if field == 0 else "Enter=save  Esc=cancel"
-    surf.blit(font.render(hint_text, True, (120, 120, 120)), (fx + 6, fy + fh - 14))
+        else:
+            display = hdg_buf if hdg_buf else "0/90/180/270"
+            color   = (255, 255, 255) if hdg_buf else (90, 90, 90)
+            surf.blit(font.render(display, True, color), (box_x + 5, row_y + 5))
+            if active:
+                cx_pos = box_x + 5 + font.size(hdg_buf)[0] + 1
+                if (pygame.time.get_ticks() // 500) % 2 == 0:
+                    pygame.draw.line(surf, (255, 255, 255),
+                                     (cx_pos, row_y + 4), (cx_pos, row_y + row_h - 8), 1)
+
+    if field == 0:
+        hint = "Enter=next  Esc=cancel"
+    elif field == 1:
+        hint = "◀/▶ or Tab=cycle  Enter=next  Esc=cancel"
+    else:
+        hint = "Enter=save  Esc=cancel"
+    surf.blit(font.render(hint, True, (120, 120, 120)), (fx + 6, fy + fh - 14))
+
+
+def filename_screen(screen, font, font_bold, clock):
+    """Blocking startup screen — returns the chosen output filename."""
+    buf = ""
+    while True:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit(); sys.exit()
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    pygame.quit(); sys.exit()
+                elif event.key == pygame.K_BACKSPACE:
+                    buf = buf[:-1]
+                elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
+                    if buf.strip():
+                        return buf.strip()
+                else:
+                    ch = event.unicode
+                    if ch and ch.isprintable():
+                        buf += ch
+
+        sw, sh = screen.get_size()
+        screen.fill((20, 20, 28))
+
+        title = font_bold.render("Coord Picker — Output File", True, (200, 255, 200))
+        screen.blit(title, title.get_rect(center=(sw // 2, sh // 2 - 60)))
+
+        prompt = font.render("Enter output filename (must include .json):", True, (180, 180, 180))
+        screen.blit(prompt, prompt.get_rect(center=(sw // 2, sh // 2 - 20)))
+
+        # Input box
+        bw, bh = 400, 34
+        bx, by = sw // 2 - bw // 2, sh // 2 + 10
+        pygame.draw.rect(screen, (35, 35, 35), (bx, by, bw, bh), border_radius=4)
+        pygame.draw.rect(screen, FORM_ACTIVE,  (bx, by, bw, bh), 1, border_radius=4)
+
+        display = buf if buf else "e.g. my_layout.json"
+        color   = (255, 255, 255) if buf else (80, 80, 80)
+        screen.blit(font.render(display, True, color), (bx + 8, by + 8))
+
+        # Cursor
+        if buf and (pygame.time.get_ticks() // 500) % 2 == 0:
+            cx_pos = bx + 8 + font.size(buf)[0] + 1
+            pygame.draw.line(screen, (255, 255, 255), (cx_pos, by + 6), (cx_pos, by + bh - 6), 1)
+
+        hint = font.render("Enter=confirm   Esc=quit", True, (100, 100, 100))
+        screen.blit(hint, hint.get_rect(center=(sw // 2, by + bh + 16)))
+
+        pygame.display.flip()
+        clock.tick(60)
 
 
 def main():
@@ -182,6 +263,10 @@ def main():
     font_bold = pygame.font.SysFont("monospace", FONT_SIZE + 2, bold=True)
     clock = pygame.time.Clock()
 
+    # ── startup: ask for output filename ──────────────────────────────────────
+    output_file = filename_screen(screen, font, font_bold, clock)
+    pygame.display.set_caption(f"Coord Picker — {img_path.name}  →  {output_file}")
+
     raw_img = pygame.image.load(str(img_path)).convert()
     img_w, img_h = raw_img.get_size()
 
@@ -189,11 +274,12 @@ def main():
     zoom   = min(sw / img_w, sh / img_h)
     offset = [sw / 2 - img_w * zoom / 2, sh / 2 - img_h * zoom / 2]
 
-    points  = {}     # {id: {"x": int, "y": int, "heading": float}}
-    pending = None   # (ix, iy) image coords while form is open
-    field   = 0      # 0=ID, 1=heading
-    id_buf  = ""
-    hdg_buf = ""
+    points   = {}     # {id: {"x": int, "y": int, "type": str, "heading": float}}
+    pending  = None   # (ix, iy) image coords while form is open
+    field    = 0      # 0=ID, 1=TYPE, 2=HDG
+    type_idx = 0
+    id_buf   = ""
+    hdg_buf  = ""
 
     panning          = False
     pan_start        = (0, 0)
@@ -214,55 +300,65 @@ def main():
 
                 if pending is not None:
                     if event.key == pygame.K_ESCAPE:
-                        pending = None; id_buf = ""; hdg_buf = ""; field = 0
+                        pending = None; id_buf = ""; hdg_buf = ""; type_idx = 0; field = 0
 
                     elif event.key == pygame.K_BACKSPACE:
                         if field == 0: id_buf  = id_buf[:-1]
-                        else:          hdg_buf = hdg_buf[:-1]
+                        elif field == 2: hdg_buf = hdg_buf[:-1]
+
+                    elif event.key in (pygame.K_LEFT, pygame.K_RIGHT) and field == 1:
+                        delta    = 1 if event.key == pygame.K_RIGHT else -1
+                        type_idx = (type_idx + delta) % len(TYPE_OPTIONS)
 
                     elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_TAB):
                         if field == 0:
                             if id_buf.strip():
                                 field = 1
+                        elif field == 1:
+                            if event.key == pygame.K_TAB:
+                                type_idx = (type_idx + 1) % len(TYPE_OPTIONS)
+                            else:
+                                field = 2
                         else:
                             sid = id_buf.strip()
                             try:    hdg = float(hdg_buf.strip()) % 360
                             except: hdg = 0.0
                             if sid:
                                 ix, iy = pending
-                                points[sid] = {"x": ix, "y": iy, "heading": hdg}
-                                print(f"  Saved: {sid} = ({ix}, {iy}, {hdg}deg)")
-                            pending = None; id_buf = ""; hdg_buf = ""; field = 0
+                                pt_type = TYPE_OPTIONS[type_idx]
+                                points[sid] = {"x": ix, "y": iy, "type": pt_type, "heading": hdg}
+                                print(f"  Saved: {sid} = ({ix}, {iy}, {pt_type}, {hdg}deg)")
+                            pending = None; id_buf = ""; hdg_buf = ""; type_idx = 0; field = 0
 
                     else:
                         ch = event.unicode
                         if ch and ch.isprintable():
                             if field == 0:
                                 id_buf += ch
-                            elif ch in "0123456789.-":
+                            elif field == 2 and ch in "0123456789.-":
                                 hdg_buf += ch
 
                 else:
                     if event.key in (pygame.K_q, pygame.K_ESCAPE):
                         pygame.quit(); sys.exit()
                     elif event.key == pygame.K_s:
-                        with open(OUTPUT_FILE, "w") as f:
+                        with open(output_file, "w") as f:
                             json.dump(points, f, indent=2)
-                        print(f"\n[SAVED] {OUTPUT_FILE}")
+                        print(f"\n[SAVED] {output_file}")
                         print(json.dumps(points, indent=2))
 
             elif event.type == pygame.MOUSEBUTTONDOWN:
 
                 if event.button == 1:
                     if pending is not None:
-                        pending = None; id_buf = ""; hdg_buf = ""; field = 0
+                        pending = None; id_buf = ""; hdg_buf = ""; type_idx = 0; field = 0
                     else:
                         pending = (int(mouse_ix), int(mouse_iy))
-                        field = 0; id_buf = ""; hdg_buf = ""
+                        field = 0; id_buf = ""; hdg_buf = ""; type_idx = 0
 
                 elif event.button == 3:
                     if pending is not None:
-                        pending = None; id_buf = ""; hdg_buf = ""; field = 0
+                        pending = None; id_buf = ""; hdg_buf = ""; type_idx = 0; field = 0
                     elif points:
                         removed = list(points.keys())[-1]
                         del points[removed]
@@ -311,11 +407,13 @@ def main():
 
         for sid, pt in points.items():
             sx, sy = img_to_screen(pt["x"], pt["y"], offset, zoom)
-            pygame.draw.circle(screen, DOT_COLOR, (sx, sy), DOT_RADIUS)
+            dot_col = dot_color_for_type(pt["type"])
+            pygame.draw.circle(screen, dot_col, (sx, sy), DOT_RADIUS)
             pygame.draw.circle(screen, (255, 255, 255), (sx, sy), DOT_RADIUS, 1)
-            draw_heading_arrow(screen, sx, sy, pt["heading"], 22, DOT_COLOR, width=2)
+            draw_heading_arrow(screen, sx, sy, pt["heading"], 22, dot_col, width=2)
             lbl = font_bold.render(
-                f'{sid} ({pt["x"]},{pt["y"]}) {pt["heading"]}deg', True, LABEL_COLOR)
+                f'{sid} [{pt["type"]}] ({pt["x"]},{pt["y"]}) {pt["heading"]}deg',
+                True, LABEL_COLOR)
             screen.blit(lbl, (sx + DOT_RADIUS + 2, sy - FONT_SIZE))
 
         if pending is not None:
@@ -326,7 +424,7 @@ def main():
                 draw_heading_arrow(screen, psx, psy, preview_hdg, 28, PENDING_COLOR, width=2)
             except ValueError:
                 pass
-            draw_form(screen, font, font_bold, (psx, psy), field, id_buf, hdg_buf)
+            draw_form(screen, font, font_bold, (psx, psy), field, id_buf, type_idx, hdg_buf)
 
         sw, sh = screen.get_size()
         if pending is None:
@@ -335,9 +433,17 @@ def main():
 
         draw_heading_legend(screen, font_bold)
 
+        # ── legend: type colours ──────────────────────────────────────────────
+        lx, ly = 12, 12
+        for opt in TYPE_OPTIONS:
+            col = dot_color_for_type(opt)
+            pygame.draw.circle(screen, col, (lx + DOT_RADIUS, ly + DOT_RADIUS), DOT_RADIUS)
+            screen.blit(font.render(opt, True, col), (lx + DOT_RADIUS * 2 + 4, ly))
+            ly += FONT_SIZE + 6
+
         hud = font_bold.render(
             f"  ({int(mouse_ix)}, {int(mouse_iy)})   zoom:{zoom:.2f}x   "
-            f"pts:{len(points)}   [S]ave  [Q]uit  RClick=undo  Scroll=zoom  MidDrag=pan",
+            f"pts:{len(points)}   [S]ave → {output_file}   [Q]uit  RClick=undo  Scroll=zoom  MidDrag=pan",
             True, HUD_COLOR)
         pygame.draw.rect(screen, (0, 0, 0), (0, sh - FONT_SIZE - 6, sw, FONT_SIZE + 6))
         screen.blit(hud, (4, sh - FONT_SIZE - 4))
@@ -348,4 +454,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
