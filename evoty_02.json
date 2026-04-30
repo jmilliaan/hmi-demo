@@ -1,0 +1,70 @@
+{
+  "NODES": {
+    "HOME-RELEASE": {
+      "x": 1065,
+      "y": 479,
+      "type": "seq_point",
+      "heading": 0.0
+    },
+    "CORNER-1": {
+      "x": 1202,
+      "y": 479,
+      "type": "waypoint",
+      "heading": 90.0
+    },
+    "CORNER-2": {
+      "x": 1201,
+      "y": 505,
+      "type": "waypoint",
+      "heading": 180.0
+    },
+    "HOME_PICKUP": {
+      "x": 1102,
+      "y": 505,
+      "type": "seq_point",
+      "heading": 180.0
+    },
+    "CORNER-3": {
+      "x": 18,
+      "y": 505,
+      "type": "waypoint",
+      "heading": 90.0
+    },
+    "CORNER-4": {
+      "x": 18,
+      "y": 660,
+      "type": "waypoint",
+      "heading": 0.0
+    },
+    "BTU-4": {
+      "x": 576,
+      "y": 661,
+      "type": "seq_point",
+      "heading": 0.0
+    },
+    "CORNER-5": {
+      "x": 954,
+      "y": 661,
+      "type": "waypoint",
+      "heading": 270.0
+    },
+    "CORNER-6": {
+      "x": 953,
+      "y": 480,
+      "type": "waypoint",
+      "heading": 0.0
+    }
+  },
+  "SEQUENCE": [
+    {"node": "HOME-RELEASE", "action": "release"},
+    {"node": "CORNER-1",     "action": "move"},
+    {"node": "CORNER-2",     "action": "move"},
+    {"node": "HOME_PICKUP",  "action": "pickup"},
+    {"node": "CORNER-3",     "action": "move"},
+    {"node": "CORNER-4",     "action": "move"},
+    {"node": "BTU-4",        "action": "exchange"},
+    {"node": "CORNER-5",     "action": "move"},
+    {"node": "CORNER-6",     "action": "move"},
+    {"node": "HOME-RELEASE", "action": "release"}
+  ]
+}

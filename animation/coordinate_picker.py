@@ -4,15 +4,25 @@ coord_picker.py — Click on plant layout to collect station coordinates + AGV h
 Usage:
     python coord_picker.py <layout.png>
 
-Controls:
+Modes
+-----
+NODE MODE (default)
     Left-click          → pin a point; fills in-window form (ID + type + heading)
     Enter / Tab         → confirm entry and move to next field
     Left/Right arrows   → cycle TYPE options while on the TYPE field
     Escape (in form)    → cancel pending entry
-    Right-click         → undo last saved point
+    Right-click         → undo last saved node
+    E                   → switch to SEQUENCE MODE
+
+SEQUENCE MODE
+    Left-click on dot   → append that node to the sequence
+    Right-click         → remove last entry from sequence
+    E                   → switch back to NODE MODE
+
+Both modes
     Scroll wheel        → zoom in/out (zoom anchored to cursor)
     Middle-drag         → pan
-    S (no form open)    → save coords.json
+    S                   → save JSON  (NODES + SEQUENCE)
     Q / Esc (no form)   → quit
 
 Type options:
@@ -25,8 +35,11 @@ Heading convention:
     180° → LEFT   (-X)
     270° → UP     (-Y)
 
-Output (coords.json):
-    { "STATION_ID": {"x": int, "y": int, "type": str, "heading": float}, ... }
+Output format:
+    {
+      "NODES":    { "ID": {"x": int, "y": int, "type": str, "heading": float}, ... },
+      "SEQUENCE": ["ID", "ID", ...]
+    }
 """
 
 import pygame
@@ -46,14 +59,19 @@ HUD_COLOR           = (200, 255, 200)
 FORM_BG             = ( 20,  20,  20)
 FORM_BORDER         = (120, 120, 120)
 FORM_ACTIVE         = ( 80, 160, 255)
+SEQ_HIGHLIGHT       = (255, 100, 200)   # magenta — sequence selection ring
 FONT_SIZE           = 14
 DOT_RADIUS          = 6
 GRID_STEP           = 100
 ZOOM_STEP           = 0.15
 ZOOM_MIN            = 0.1
 ZOOM_MAX            = 8.0
+SEQ_HIT_RADIUS      = 18   # click tolerance for sequence picking (screen px)
 
 TYPE_OPTIONS = ["waypoint", "seq_point"]
+
+MODE_NODE = "NODE"
+MODE_SEQ  = "SEQUENCE"
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -131,7 +149,6 @@ def dot_color_for_type(pt_type):
 
 
 def draw_form(surf, font, font_bold, anchor_xy, field, id_buf, type_idx, hdg_buf):
-    """Three-row form: ID / TYPE / HDG."""
     sw, sh = surf.get_size()
     fw, fh = 310, 110
     px, py = anchor_xy
@@ -145,13 +162,13 @@ def draw_form(surf, font, font_bold, anchor_xy, field, id_buf, type_idx, hdg_buf
     pygame.draw.rect(surf, FORM_BG,     (fx, fy, fw, fh), border_radius=6)
     pygame.draw.rect(surf, FORM_BORDER, (fx, fy, fw, fh), 1, border_radius=6)
 
-    row_h   = 28
-    labels  = ["ID :", "TYPE:", "HDG:"]
+    row_h        = 28
+    labels       = ["ID :", "TYPE:", "HDG:"]
     current_type = TYPE_OPTIONS[type_idx]
 
     for i, lbl_text in enumerate(labels):
-        row_y  = fy + 6 + i * row_h
-        active = (i == field)
+        row_y      = fy + 6 + i * row_h
+        active     = (i == field)
         border_col = FORM_ACTIVE if active else FORM_BORDER
 
         surf.blit(font_bold.render(lbl_text, True, (200, 200, 200)), (fx + 6, row_y + 4))
@@ -173,7 +190,7 @@ def draw_form(surf, font, font_bold, anchor_xy, field, id_buf, type_idx, hdg_buf
 
         elif i == 1:
             type_color = dot_color_for_type(current_type)
-            surf.blit(font.render(f"◀ {current_type} ▶", True, type_color), (box_x + 5, row_y + 5))
+            surf.blit(font.render(f"◄ {current_type} ►", True, type_color), (box_x + 5, row_y + 5))
 
         else:
             display = hdg_buf if hdg_buf else "0/90/180/270"
@@ -188,10 +205,50 @@ def draw_form(surf, font, font_bold, anchor_xy, field, id_buf, type_idx, hdg_buf
     if field == 0:
         hint = "Enter=next  Esc=cancel"
     elif field == 1:
-        hint = "◀/▶ or Tab=cycle  Enter=next  Esc=cancel"
+        hint = "◄/► or Tab=cycle  Enter=next  Esc=cancel"
     else:
         hint = "Enter=save  Esc=cancel"
     surf.blit(font.render(hint, True, (120, 120, 120)), (fx + 6, fy + fh - 14))
+
+
+def draw_sequence_panel(surf, font, font_bold, sequence):
+    """Right-side panel showing the current sequence list."""
+    sw, sh = surf.get_size()
+    panel_w = 220
+    row_h   = 18
+    max_rows = (sh - 80) // row_h
+    visible  = sequence[-max_rows:] if len(sequence) > max_rows else sequence
+    offset_i = len(sequence) - len(visible)
+
+    panel_h = row_h * len(visible) + 40
+    px = sw - panel_w - 100   # leave room for heading legend
+    py = 10
+
+    bg = pygame.Surface((panel_w, panel_h), pygame.SRCALPHA)
+    bg.fill((10, 10, 10, 180))
+    surf.blit(bg, (px, py))
+    pygame.draw.rect(surf, SEQ_HIGHLIGHT, (px, py, panel_w, panel_h), 1, border_radius=4)
+
+    title = font_bold.render(f"SEQUENCE ({len(sequence)})", True, SEQ_HIGHLIGHT)
+    surf.blit(title, (px + 6, py + 4))
+
+    for i, sid in enumerate(visible):
+        idx   = offset_i + i
+        label = font.render(f"{idx:>3}. {sid}", True, (220, 220, 220))
+        surf.blit(label, (px + 6, py + 24 + i * row_h))
+
+
+def find_node_at(sx, sy, nodes, offset, zoom):
+    """Return the node ID closest to screen pos (sx, sy), or None if none within SEQ_HIT_RADIUS."""
+    best_id   = None
+    best_dist = SEQ_HIT_RADIUS + 1
+    for sid, pt in nodes.items():
+        nx, ny = img_to_screen(pt["x"], pt["y"], offset, zoom)
+        d = math.hypot(sx - nx, sy - ny)
+        if d < best_dist:
+            best_dist = d
+            best_id   = sid
+    return best_id
 
 
 def filename_screen(screen, font, font_bold, clock):
@@ -223,7 +280,6 @@ def filename_screen(screen, font, font_bold, clock):
         prompt = font.render("Enter output filename (must include .json):", True, (180, 180, 180))
         screen.blit(prompt, prompt.get_rect(center=(sw // 2, sh // 2 - 20)))
 
-        # Input box
         bw, bh = 400, 34
         bx, by = sw // 2 - bw // 2, sh // 2 + 10
         pygame.draw.rect(screen, (35, 35, 35), (bx, by, bw, bh), border_radius=4)
@@ -233,7 +289,6 @@ def filename_screen(screen, font, font_bold, clock):
         color   = (255, 255, 255) if buf else (80, 80, 80)
         screen.blit(font.render(display, True, color), (bx + 8, by + 8))
 
-        # Cursor
         if buf and (pygame.time.get_ticks() // 500) % 2 == 0:
             cx_pos = bx + 8 + font.size(buf)[0] + 1
             pygame.draw.line(screen, (255, 255, 255), (cx_pos, by + 6), (cx_pos, by + bh - 6), 1)
@@ -243,6 +298,22 @@ def filename_screen(screen, font, font_bold, clock):
 
         pygame.display.flip()
         clock.tick(60)
+
+
+def load_existing(output_file):
+    """Load NODES and SEQUENCE from an existing file, or return empty dicts/list."""
+    p = Path(output_file)
+    if p.exists():
+        try:
+            with open(p) as f:
+                data = json.load(f)
+            nodes    = data.get("NODES", {})
+            sequence = data.get("SEQUENCE", [])
+            print(f"[LOADED] {output_file}  ({len(nodes)} nodes, {len(sequence)} seq entries)")
+            return nodes, sequence
+        except Exception as e:
+            print(f"[WARN] Could not load {output_file}: {e}")
+    return {}, []
 
 
 def main():
@@ -263,9 +334,11 @@ def main():
     font_bold = pygame.font.SysFont("monospace", FONT_SIZE + 2, bold=True)
     clock = pygame.time.Clock()
 
-    # ── startup: ask for output filename ──────────────────────────────────────
     output_file = filename_screen(screen, font, font_bold, clock)
     pygame.display.set_caption(f"Coord Picker — {img_path.name}  →  {output_file}")
+
+    # Load existing data if file already exists
+    nodes, sequence = load_existing(output_file)
 
     raw_img = pygame.image.load(str(img_path)).convert()
     img_w, img_h = raw_img.get_size()
@@ -274,9 +347,9 @@ def main():
     zoom   = min(sw / img_w, sh / img_h)
     offset = [sw / 2 - img_w * zoom / 2, sh / 2 - img_h * zoom / 2]
 
-    points   = {}     # {id: {"x": int, "y": int, "type": str, "heading": float}}
-    pending  = None   # (ix, iy) image coords while form is open
-    field    = 0      # 0=ID, 1=TYPE, 2=HDG
+    mode     = MODE_NODE
+    pending  = None   # (ix, iy) while form open
+    field    = 0
     type_idx = 0
     id_buf   = ""
     hdg_buf  = ""
@@ -298,12 +371,13 @@ def main():
 
             elif event.type == pygame.KEYDOWN:
 
-                if pending is not None:
+                # ── node mode with form open ───────────────────────────────
+                if mode == MODE_NODE and pending is not None:
                     if event.key == pygame.K_ESCAPE:
                         pending = None; id_buf = ""; hdg_buf = ""; type_idx = 0; field = 0
 
                     elif event.key == pygame.K_BACKSPACE:
-                        if field == 0: id_buf  = id_buf[:-1]
+                        if field == 0:   id_buf  = id_buf[:-1]
                         elif field == 2: hdg_buf = hdg_buf[:-1]
 
                     elif event.key in (pygame.K_LEFT, pygame.K_RIGHT) and field == 1:
@@ -324,10 +398,10 @@ def main():
                             try:    hdg = float(hdg_buf.strip()) % 360
                             except: hdg = 0.0
                             if sid:
-                                ix, iy = pending
+                                ix, iy  = pending
                                 pt_type = TYPE_OPTIONS[type_idx]
-                                points[sid] = {"x": ix, "y": iy, "type": pt_type, "heading": hdg}
-                                print(f"  Saved: {sid} = ({ix}, {iy}, {pt_type}, {hdg}deg)")
+                                nodes[sid] = {"x": ix, "y": iy, "type": pt_type, "heading": hdg}
+                                print(f"  Saved node: {sid} = ({ix}, {iy}, {pt_type}, {hdg}deg)")
                             pending = None; id_buf = ""; hdg_buf = ""; type_idx = 0; field = 0
 
                     else:
@@ -338,31 +412,48 @@ def main():
                             elif field == 2 and ch in "0123456789.-":
                                 hdg_buf += ch
 
+                # ── no form open (both modes share these) ──────────────────
                 else:
                     if event.key in (pygame.K_q, pygame.K_ESCAPE):
                         pygame.quit(); sys.exit()
+
+                    elif event.key == pygame.K_e:
+                        mode = MODE_SEQ if mode == MODE_NODE else MODE_NODE
+                        print(f"  Switched to {mode} mode")
+
                     elif event.key == pygame.K_s:
+                        data = {"NODES": nodes, "SEQUENCE": sequence}
                         with open(output_file, "w") as f:
-                            json.dump(points, f, indent=2)
-                        print(f"\n[SAVED] {output_file}")
-                        print(json.dumps(points, indent=2))
+                            json.dump(data, f, indent=2)
+                        print(f"\n[SAVED] {output_file}  ({len(nodes)} nodes, {len(sequence)} seq entries)")
 
             elif event.type == pygame.MOUSEBUTTONDOWN:
 
                 if event.button == 1:
-                    if pending is not None:
-                        pending = None; id_buf = ""; hdg_buf = ""; type_idx = 0; field = 0
-                    else:
-                        pending = (int(mouse_ix), int(mouse_iy))
-                        field = 0; id_buf = ""; hdg_buf = ""; type_idx = 0
+                    if mode == MODE_NODE:
+                        if pending is not None:
+                            pending = None; id_buf = ""; hdg_buf = ""; type_idx = 0; field = 0
+                        else:
+                            pending = (int(mouse_ix), int(mouse_iy))
+                            field = 0; id_buf = ""; hdg_buf = ""; type_idx = 0
+                    else:  # SEQUENCE mode — click to append nearest node
+                        hit = find_node_at(mouse_sx, mouse_sy, nodes, offset, zoom)
+                        if hit:
+                            sequence.append(hit)
+                            print(f"  Seq append: {hit}  (total {len(sequence)})")
 
                 elif event.button == 3:
-                    if pending is not None:
-                        pending = None; id_buf = ""; hdg_buf = ""; type_idx = 0; field = 0
-                    elif points:
-                        removed = list(points.keys())[-1]
-                        del points[removed]
-                        print(f"  Removed: {removed}")
+                    if mode == MODE_NODE:
+                        if pending is not None:
+                            pending = None; id_buf = ""; hdg_buf = ""; type_idx = 0; field = 0
+                        elif nodes:
+                            removed = list(nodes.keys())[-1]
+                            del nodes[removed]
+                            print(f"  Removed node: {removed}")
+                    else:  # SEQUENCE mode — remove last entry
+                        if sequence:
+                            removed = sequence.pop()
+                            print(f"  Seq removed last: {removed}  (total {len(sequence)})")
 
                 elif event.button == 2:
                     panning = True
@@ -405,16 +496,44 @@ def main():
 
         draw_grid(screen, img_w, img_h, offset, zoom, font)
 
-        for sid, pt in points.items():
-            sx, sy = img_to_screen(pt["x"], pt["y"], offset, zoom)
+        # Draw sequence path lines first (below dots)
+        if sequence:
+            seq_screen = []
+            for sid in sequence:
+                if sid in nodes:
+                    pt = nodes[sid]
+                    seq_screen.append(img_to_screen(pt["x"], pt["y"], offset, zoom))
+            if len(seq_screen) > 1:
+                pygame.draw.lines(screen, SEQ_HIGHLIGHT, False, seq_screen, 2)
+            # Number each step along the path
+            for i, (sx2, sy2) in enumerate(seq_screen):
+                idx_lbl = font.render(str(i), True, SEQ_HIGHLIGHT)
+                screen.blit(idx_lbl, (sx2 + DOT_RADIUS + 1, sy2 - FONT_SIZE - 2))
+
+        # Draw nodes
+        for sid, pt in nodes.items():
+            sx2, sy2 = img_to_screen(pt["x"], pt["y"], offset, zoom)
             dot_col = dot_color_for_type(pt["type"])
-            pygame.draw.circle(screen, dot_col, (sx, sy), DOT_RADIUS)
-            pygame.draw.circle(screen, (255, 255, 255), (sx, sy), DOT_RADIUS, 1)
-            draw_heading_arrow(screen, sx, sy, pt["heading"], 22, dot_col, width=2)
+
+            # Highlight ring in sequence mode for nodes in sequence
+            if mode == MODE_SEQ and sid in sequence:
+                pygame.draw.circle(screen, SEQ_HIGHLIGHT, (sx2, sy2), DOT_RADIUS + 4, 2)
+
+            pygame.draw.circle(screen, dot_col, (sx2, sy2), DOT_RADIUS)
+            pygame.draw.circle(screen, (255, 255, 255), (sx2, sy2), DOT_RADIUS, 1)
+            draw_heading_arrow(screen, sx2, sy2, pt["heading"], 22, dot_col, width=2)
             lbl = font_bold.render(
                 f'{sid} [{pt["type"]}] ({pt["x"]},{pt["y"]}) {pt["heading"]}deg',
                 True, LABEL_COLOR)
-            screen.blit(lbl, (sx + DOT_RADIUS + 2, sy - FONT_SIZE))
+            screen.blit(lbl, (sx2 + DOT_RADIUS + 2, sy2 - FONT_SIZE))
+
+        # Hover highlight in sequence mode
+        if mode == MODE_SEQ and pending is None:
+            hit = find_node_at(mouse_sx, mouse_sy, nodes, offset, zoom)
+            if hit:
+                pt = nodes[hit]
+                hx, hy = img_to_screen(pt["x"], pt["y"], offset, zoom)
+                pygame.draw.circle(screen, (255, 255, 255), (hx, hy), DOT_RADIUS + 6, 2)
 
         if pending is not None:
             psx, psy = img_to_screen(pending[0], pending[1], offset, zoom)
@@ -427,13 +546,17 @@ def main():
             draw_form(screen, font, font_bold, (psx, psy), field, id_buf, type_idx, hdg_buf)
 
         sw, sh = screen.get_size()
-        if pending is None:
+
+        if pending is None and mode == MODE_NODE:
             pygame.draw.line(screen, CROSSHAIR_COLOR, (mouse_sx, 0), (mouse_sx, sh), 1)
             pygame.draw.line(screen, CROSSHAIR_COLOR, (0, mouse_sy), (sw, mouse_sy), 1)
 
         draw_heading_legend(screen, font_bold)
 
-        # ── legend: type colours ──────────────────────────────────────────────
+        # Sequence panel (right side, above heading legend)
+        draw_sequence_panel(screen, font, font_bold, sequence)
+
+        # Type colour legend (top-left)
         lx, ly = 12, 12
         for opt in TYPE_OPTIONS:
             col = dot_color_for_type(opt)
@@ -441,9 +564,19 @@ def main():
             screen.blit(font.render(opt, True, col), (lx + DOT_RADIUS * 2 + 4, ly))
             ly += FONT_SIZE + 6
 
+        # Mode badge
+        mode_col  = (100, 200, 255) if mode == MODE_NODE else SEQ_HIGHLIGHT
+        mode_surf = font_bold.render(f"[ {mode} MODE ]", True, mode_col)
+        screen.blit(mode_surf, (sw // 2 - mode_surf.get_width() // 2, 6))
+
+        # HUD bar
+        if mode == MODE_NODE:
+            hud_right = "[E]=seq mode  [S]ave  [Q]uit  RClick=undo node  Scroll=zoom  MidDrag=pan"
+        else:
+            hud_right = "[E]=node mode  [S]ave  [Q]uit  LClick=add to seq  RClick=remove last"
         hud = font_bold.render(
             f"  ({int(mouse_ix)}, {int(mouse_iy)})   zoom:{zoom:.2f}x   "
-            f"pts:{len(points)}   [S]ave → {output_file}   [Q]uit  RClick=undo  Scroll=zoom  MidDrag=pan",
+            f"nodes:{len(nodes)}  seq:{len(sequence)}   {hud_right}",
             True, HUD_COLOR)
         pygame.draw.rect(screen, (0, 0, 0), (0, sh - FONT_SIZE - 6, sw, FONT_SIZE + 6))
         screen.blit(hud, (4, sh - FONT_SIZE - 4))

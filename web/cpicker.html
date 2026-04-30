@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Coord Picker</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <canvas id="canvas"></canvas>
+
+  <!-- Type legend (top-left) -->
+  <div id="typeLegend">
+    <div class="legend-row">
+      <div class="dot" style="background:#50DC78;"></div>
+      <span style="color:#1a6828;">seq_point</span>
+    </div>
+    <div class="legend-row">
+      <div class="dot" style="background:#FFC832;"></div>
+      <span style="color:#905800;">waypoint</span>
+    </div>
+  </div>
+
+  <!-- Mode badge (top-center) -->
+  <div id="modeBadge" class="node-mode">NODE MODE</div>
+
+  <!-- Sequence panel (right) -->
+  <div id="seqPanel">
+    <div class="panel-title" id="seqPanelTitle">SEQUENCE (0)</div>
+    <div id="seqList"></div>
+  </div>
+
+  <!-- Node list panel (bottom-left, above HUD) -->
+  <div id="nodeListPanel">
+    <div class="panel-title" id="nodeListTitle">NODES (0)</div>
+    <div id="nodeListBody"></div>
+  </div>
+
+  <!-- HUD bar (bottom) -->
+  <div id="hud">
+    <span id="hudCoords">(0, 0)</span>
+    <span id="hudZoom" class="dim">zoom: 1.00×</span>
+    <span id="hudCounts" class="dim">nodes: 0 | seq: 0</span>
+    <span id="hudFile" class="dim">→ coords.json</span>
+    <span class="dim">· [E] mode · [S] save · RClick=undo/cancel · Scroll=zoom · MMB=pan</span>
+    <button id="clearBtn">Clear</button>
+  </div>
+
+  <!-- Inline name input bar (seq_point naming step) -->
+  <div id="nameInputBar">
+    <span class="name-input-label">Node name</span>
+    <input type="text" id="nameInput" placeholder="e.g. HP-RELEASE" autocomplete="off" spellcheck="false">
+    <span class="name-input-hint">Enter=confirm · Esc=cancel</span>
+  </div>
+
+  <!-- Startup modal -->
+  <dialog id="startupModal">
+    <h2>Coord Picker</h2>
+    <label>Output filename</label>
+    <input type="text" id="filenameInput" value="coords.json" placeholder="e.g. evoty_01.json" autocomplete="off">
+    <label>Load existing JSON (optional)</label>
+    <input type="file" id="loadJsonInput" accept=".json">
+    <label>Background image (optional)</label>
+    <input type="file" id="loadImgInput" accept="image/*">
+    <div class="dialog-buttons">
+      <button class="primary" id="startBtn">Open Picker</button>
+    </div>
+  </dialog>
+
+  <!-- Confirm clear dialog -->
+  <dialog id="confirmClearModal">
+    <h2>Clear everything?</h2>
+    <p style="font-size:13px;color:#505060;margin-bottom:20px;line-height:1.6;">
+      This will remove all nodes, the sequence, and the loaded image.<br>
+      The startup screen will reopen so you can start fresh.
+    </p>
+    <div class="dialog-buttons">
+      <button id="confirmClearCancel">Cancel</button>
+      <button class="danger" id="confirmClearOk">Yes, clear all</button>
+    </div>
+  </dialog>
+
+  <!-- Action picker (sequence mode) -->
+  <div id="actionPicker">
+    <div class="picker-label">Action at this stop</div>
+    <button data-action="move">move — pass through</button>
+    <button data-action="pickup">pickup — attach trolley</button>
+    <button data-action="release">release — detach trolley</button>
+    <button data-action="exchange">exchange — swap trolley</button>
+  </div>
+
+  <script src="shared.js"></script>
+  <script src="cpicker.js"></script>
+</body>
+</html>

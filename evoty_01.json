@@ -1,56 +1,71 @@
 {
-  "HP-RELEASE": {
-    "x": 1094,
-    "y": 479,
-    "type": "seq_point",
-    "heading": 0.0
+  "NODES":
+  {
+    "HP-RELEASE": {
+      "x": 1094,
+      "y": 479,
+      "type": "seq_point",
+      "heading": 0.0
+    },
+    "CORNER-HP-1": {
+      "x": 1202,
+      "y": 479,
+      "type": "waypoint",
+      "heading": 0.0
+    },
+    "CORNER-HP-2": {
+      "x": 1201,
+      "y": 505,
+      "type": "waypoint",
+      "heading": 90.0
+    },
+    "HP-PICKUP": {
+      "x": 1093,
+      "y": 505,
+      "type": "seq_point",
+      "heading": 180.0
+    },
+    "CORNER-01": {
+      "x": 18,
+      "y": 505,
+      "type": "waypoint",
+      "heading": 180.0
+    },
+    "CORNER-2": {
+      "x": 18,
+      "y": 661,
+      "type": "waypoint",
+      "heading": 90.0
+    },
+    "BTU-4": {
+      "x": 566,
+      "y": 660,
+      "type": "seq_point",
+      "heading": 0.0
+    },
+    "CORNER-3": {
+      "x": 954,
+      "y": 661,
+      "type": "waypoint",
+      "heading": 0.0
+    },
+    "CORNER-4": {
+      "x": 953,
+      "y": 479,
+      "type": "waypoint",
+      "heading": 270.0
+    }
   },
-  "CORNER-HP-1": {
-    "x": 1202,
-    "y": 479,
-    "type": "waypoint",
-    "heading": 0.0
-  },
-  "CORNER-HP-2": {
-    "x": 1201,
-    "y": 505,
-    "type": "waypoint",
-    "heading": 90.0
-  },
-  "HP-PICKUP": {
-    "x": 1093,
-    "y": 505,
-    "type": "seq_point",
-    "heading": 180.0
-  },
-  "CORNER-01": {
-    "x": 18,
-    "y": 505,
-    "type": "waypoint",
-    "heading": 180.0
-  },
-  "CORNER-2": {
-    "x": 18,
-    "y": 661,
-    "type": "waypoint",
-    "heading": 90.0
-  },
-  "BTU-4": {
-    "x": 566,
-    "y": 660,
-    "type": "seq_point",
-    "heading": 0.0
-  },
-  "CORNER-3": {
-    "x": 954,
-    "y": 661,
-    "type": "waypoint",
-    "heading": 0.0
-  },
-  "CORNER-4": {
-    "x": 953,
-    "y": 479,
-    "type": "waypoint",
-    "heading": 270.0
-  }
+  "SEQUENCE": [
+    {"node": "HP-RELEASE",  "action": "release"},
+    {"node": "CORNER-HP-1", "action": "move"},
+    {"node": "CORNER-HP-2", "action": "move"},
+    {"node": "HP-PICKUP",   "action": "pickup"},
+    {"node": "CORNER-01",   "action": "move"},
+    {"node": "CORNER-2",    "action": "move"},
+    {"node": "BTU-4",       "action": "exchange"},
+    {"node": "CORNER-3",    "action": "move"},
+    {"node": "CORNER-4",    "action": "move"},
+    {"node": "HP-RELEASE",  "action": "release"}
+  ]
 }

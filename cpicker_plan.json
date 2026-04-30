@@ -1,0 +1,157 @@
+{
+  "name": "cpicker",
+  "description": "Browser-based coordinate picker. Replaces coordinate_picker.py. Runs as a static HTML file — no server needed.",
+  "hosting": "Netlify or GitHub Pages (static, free, always-on)",
+  "files": {
+    "web/cpicker.html": "Entry point. Loads canvas, toolbar, modal dialog elements.",
+    "web/cpicker.js": "All picker logic: modes, node CRUD, sequence building, file I/O.",
+    "web/shared.js": "imgToScreen, screenToImg, drawHeadingArrow, findNodeAt, advanceAlongPath, drawGrid, drawHeadingLegend.",
+    "web/style.css": "Dark theme, toolbar, modal, sequence panel, mode badge."
+  },
+  "data_schema": {
+    "NODES": {
+      "_desc": "Keyed by user-assigned ID string.",
+      "ID": {
+        "x": "integer — image-space pixel X",
+        "y": "integer — image-space pixel Y",
+        "type": "waypoint | seq_point",
+        "heading": "float 0-359 degrees"
+      }
+    },
+    "SEQUENCE": [
+      {
+        "node": "string — must match a key in NODES",
+        "action": "move | pickup | release | exchange",
+        "_action_rules": {
+          "move": "AGV passes through; no trolley state change. Auto-assigned for waypoints.",
+          "pickup": "AGV attaches trolley at this node. Trolley travels with AGV from here.",
+          "release": "AGV detaches trolley. Trolley stays at this node position.",
+          "exchange": "AGV releases current trolley and picks up a different one at same node."
+        }
+      }
+    ]
+  },
+  "backward_compat": "If SEQUENCE contains plain strings instead of {node, action} objects, treat each as {node: str, action: 'move'}.",
+  "ui": {
+    "canvas": {
+      "element": "HTMLCanvasElement filling viewport",
+      "background": "User-loaded PNG via <input type=file> in startup modal",
+      "transform": "Manual offsetX/offsetY/zoom math — same as pygame version",
+      "grid": "100px lines, label every 500px"
+    },
+    "modes": {
+      "NODE": {
+        "trigger": "Default on load, or press E",
+        "left_click": "Open <dialog> node form at click position",
+        "right_click": "Remove last added node",
+        "crosshair": "Red crosshair drawn on canvas while no form is open"
+      },
+      "SEQUENCE": {
+        "trigger": "Press E from NODE mode",
+        "left_click_on_waypoint": "Append {node, action:'move'} to SEQUENCE immediately",
+        "left_click_on_seq_point": "Show inline action picker panel near mouse; append on button click",
+        "right_click": "Remove last SEQUENCE entry",
+        "hover": "White ring around nearest node within 18px"
+      }
+    },
+    "forms": {
+      "startup_modal": "HTML <dialog>: filename input, optional load-existing JSON, optional background image load.",
+      "node_form": "HTML <dialog>: ID text input, type toggle (waypoint/seq_point buttons), heading number input.",
+      "action_picker": "Floating <div> near click position. Buttons: Move / Pickup / Release / Exchange. Dismisses on selection or outside click."
+    },
+    "overlays": {
+      "sequence_panel": "Right-side fixed <div>. Scrollable list of SEQUENCE entries (index + node ID + action badge).",
+      "type_legend": "Top-left fixed <div>: yellow dot = waypoint, green dot = seq_point.",
+      "mode_badge": "Top-center fixed <div>: NODE MODE | SEQUENCE MODE chip.",
+      "hud_bar": "Bottom fixed <div>: cursor image coords, zoom, node count, seq count, filename, keyboard hints."
+    },
+    "visuals": {
+      "waypoint_dot": "#FFC832 (yellow), radius 6px",
+      "seq_point_dot": "#50DC78 (green), radius 6px",
+      "sequence_lines": "#FF64C8 (magenta) polyline in node order",
+      "sequence_step_numbers": "Magenta index near each dot",
+      "heading_arrow": "Arrowhead from dot center in heading direction, same color as dot",
+      "heading_legend": "Compass rose top-right corner of canvas: 0/90/180/270"
+    }
+  },
+  "file_io": {
+    "load_image": "<input type=file accept=image/*> in startup modal → FileReader → drawImage on canvas",
+    "load_json": "<input type=file accept=.json> in startup modal → JSON.parse → populate NODES + SEQUENCE",
+    "save_json": "S key → JSON.stringify → Blob → <a download=filename> programmatic click"
+  },
+  "keyboard": {
+    "E": "Toggle NODE / SEQUENCE mode",
+    "S": "Save JSON (triggers browser download)",
+    "Escape": "Close form if open; no-op otherwise",
+    "Scroll": "Zoom anchored to cursor",
+    "Middle_drag": "Pan"
+  },
+  "zoom_pan": {
+    "min_zoom": 0.1,
+    "max_zoom": 8.0,
+    "step_factor": 0.15,
+    "implementation": "ViewState = {offsetX, offsetY, zoom}. On scroll: anchor zoom to cursor position. On middle-drag: shift offset."
+  },
+  "shared_js_api": {
+    "imgToScreen": "(ix, iy, view) => {sx, sy}",
+    "screenToImg": "(sx, sy, view) => {ix, iy}",
+    "drawHeadingArrow": "(ctx, cx, cy, deg, length, color, width=2) => void",
+    "findNodeAt": "(sx, sy, nodes, view, hitRadius=18) => nodeId | null",
+    "advanceAlongPath": "(pos, path, targetIdx, speed, dt) => {pos, targetIdx}",
+    "drawGrid": "(ctx, imgW, imgH, view) => void",
+    "drawHeadingLegend": "(ctx, canvasW) => void",
+    "dotColorForType": "(type) => cssColorString"
+  },
+  "implementation_phases": [
+    {
+      "phase": 1,
+      "name": "Canvas scaffold",
+      "tasks": [
+        "HTML skeleton with canvas, overlays, dialogs",
+        "shared.js: ViewState, coord transforms, drawing utilities",
+        "style.css: dark theme, dialog, panel, badge styles",
+        "Image load via startup modal → fit to canvas",
+        "Zoom/pan mouse handlers (scroll, middle-drag)",
+        "requestAnimationFrame draw loop"
+      ]
+    },
+    {
+      "phase": 2,
+      "name": "Node placement (NODE mode)",
+      "tasks": [
+        "Left-click → record pending {x,y} → open node <dialog>",
+        "Type toggle buttons (waypoint / seq_point)",
+        "Save node to state.nodes on confirm",
+        "Draw dots, heading arrows, labels",
+        "Right-click to remove last node",
+        "Red crosshair while no modal open"
+      ]
+    },
+    {
+      "phase": 3,
+      "name": "Sequence building (SEQUENCE mode)",
+      "tasks": [
+        "E key toggles mode; updates mode badge",
+        "Hover hit detection → white ring on nearest node",
+        "Left-click waypoint → auto-append {node, action:'move'}",
+        "Left-click seq_point → show action picker float panel",
+        "Action picker: 4 buttons → append chosen action",
+        "Draw sequence polyline + step index numbers",
+        "Right-click removes last sequence entry",
+        "Sequence panel DOM list updates reactively"
+      ]
+    },
+    {
+      "phase": 4,
+      "name": "File I/O + polish",
+      "tasks": [
+        "Startup modal: filename input, load JSON, load image",
+        "S key → download JSON as {NODES, SEQUENCE}",
+        "Backward compat: plain-string SEQUENCE entries → {node, action:'move'}",
+        "Heading legend (compass rose) drawn on canvas",
+        "Type legend + mode badge DOM overlays",
+        "HUD bar: live coords, zoom, counts, filename"
+      ]
+    }
+  ]
+}

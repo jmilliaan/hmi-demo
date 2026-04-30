@@ -1,0 +1,194 @@
+{
+  "name": "animplayer",
+  "description": "Browser-based AGV animation player. Reads the JSON produced by cpicker (NODES + SEQUENCE with actions). Animates one AGV travelling the sequence with trolley attach/detach logic.",
+  "files": {
+    "web/animplayer.html": "Entry point. Canvas + top load bar + bottom player toolbar.",
+    "web/animplayer.js": "Animation engine: sequence walker, AGV interpolation, trolley state, render loop.",
+    "web/shared.js": "Shared coord math, drawing utilities (same file as cpicker).",
+    "web/style.css": "Shared dark theme styles."
+  },
+  "input_schema": {
+    "source": "JSON file produced by cpicker (drag-drop or top-bar file picker)",
+    "format": {
+      "NODES": {
+        "ID": { "x": "int", "y": "int", "type": "waypoint|seq_point", "heading": "float" }
+      },
+      "SEQUENCE": [{ "node": "ID", "action": "move|pickup|release|exchange" }]
+    },
+    "backward_compat": "Plain-string SEQUENCE entries treated as {node: str, action: 'move'}",
+    "background_image": "PNG loaded separately via top-bar file picker — same plant_layout.png used in cpicker"
+  },
+  "animation_engine": {
+    "loop": "requestAnimationFrame — dt = (now - lastTimestamp) / 1000 seconds",
+    "time_scale": "dt * speedMultiplier before passing to simulation",
+    "coordinate_space": "All simulation in image-pixel space; ViewState (offsetX/Y/zoom) applied only at draw time",
+    "agv_speed_default": 120,
+    "action_duration_default": 1.5
+  },
+  "sequence_walker": {
+    "description": "State machine that walks SEQUENCE entries, drives AGV movement and trolley state.",
+    "initial_state": {
+      "currentStep": 0,
+      "agvPos": "nodes[sequence[0].node] {x,y}",
+      "agvHeading": "nodes[sequence[0].node].heading",
+      "trolleyState": "empty",
+      "trolleyPos": null,
+      "phase": "action_pause",
+      "actionTimer": 0,
+      "note": "Starts in action_pause so the first node's action is performed immediately (duration 0 for 'move')"
+    },
+    "phases": {
+      "action_pause": {
+        "desc": "AGV holds at current node for actionDurationFor(action) seconds",
+        "action_durations": {
+          "move": "0 — transitions immediately",
+          "pickup": "ACTION_DURATION",
+          "release": "ACTION_DURATION",
+          "exchange": "ACTION_DURATION * 2"
+        },
+        "on_complete": [
+          "Apply trolley effect for sequence[currentStep].action",
+          "currentStep++",
+          "If currentStep >= sequence.length: phase = 'done'",
+          "Else: phase = 'moving'"
+        ]
+      },
+      "moving": {
+        "desc": "AGV interpolates toward nodes[sequence[currentStep]] using advanceAlongPath",
+        "path": "[agvPos (current), target node pos] — direct straight-line between consecutive nodes",
+        "heading_update": "Computed from direction vector: atan2(dy, dx) in degrees",
+        "on_arrive": "phase = 'action_pause', actionTimer = 0"
+      },
+      "done": {
+        "desc": "Animation complete. AGV stops. Restart button resets to initial state."
+      }
+    },
+    "trolley_effects": {
+      "move": "No change",
+      "pickup": "trolleyState = 'carrying'; trolleyPos = null",
+      "release": "trolleyState = 'empty'; trolleyPos = { ...currentNodePos }",
+      "exchange": "trolleyPos = { ...currentNodePos } at midpoint, then trolleyState = 'carrying'; trolleyPos = null"
+    },
+    "future_scrubber_hook": "seekToStep(n) method resets state and replays through n steps instantly (at infinite speed). totalSteps getter returns sequence.length."
+  },
+  "rendering": {
+    "draw_order": [
+      "1. Background image (plant layout PNG)",
+      "2. Grid (optional toggle)",
+      "3. Sequence path lines — magenta polyline in node order",
+      "4. Node dots + heading arrows + labels (optional toggle)",
+      "5. Active node pulse ring — white pulsing circle on current target",
+      "6. Detached trolley — orange rect at trolleyPos, only if trolleyState='empty' and trolleyPos != null",
+      "7. AGV rectangle — colored rect at agvPos with heading arrow",
+      "8. Attached trolley — smaller rect centered on AGV, only if trolleyState='carrying'",
+      "9. Action indicator — text label + progress arc above AGV during action_pause",
+      "10. HUD overlay — step counter, phase, speed on canvas"
+    ],
+    "agv": {
+      "shape": "Rounded rect 30x30px screen space",
+      "color": "#E63946",
+      "heading_arrow": "White arrow, length 20px",
+      "border": "2px white"
+    },
+    "trolley": {
+      "detached_shape": "Rect 28x18px",
+      "attached_shape": "Rect 24x14px centered on AGV",
+      "color": "#F4A261"
+    },
+    "action_indicator": {
+      "move": "No indicator (instant transition)",
+      "pickup": "Label 'PICKUP' in green above AGV + green progress arc",
+      "release": "Label 'RELEASE' in orange above AGV + orange progress arc",
+      "exchange": "Label 'EXCHANGE' in cyan above AGV + cyan progress arc"
+    },
+    "active_node_pulse": "White ring at target node, radius oscillates using sin(time * 4)"
+  },
+  "player_controls": {
+    "layout": "Fixed bottom toolbar (48px height)",
+    "controls": {
+      "play_pause": "Button toggles ▶ Play / ⏸ Pause. Space bar shortcut.",
+      "restart": "Resets walker to initial state. Works from any phase.",
+      "speed": "Dropdown: 0.25x / 0.5x / 1x / 2x / 4x — multiplies dt",
+      "agv_speed_px": "Number input (px/s in image space). Default 120.",
+      "action_duration": "Number input (seconds). Default 1.5.",
+      "show_grid": "Checkbox. Default checked.",
+      "show_labels": "Checkbox. Default checked."
+    },
+    "status_badge": "Shows current phase: IDLE | MOVING | PICKUP | RELEASE | EXCHANGE | DONE",
+    "step_counter": "Shows 'step N / M' where N = currentStep, M = sequence.length"
+  },
+  "file_io": {
+    "load_json": "<input type=file accept=.json> in top load bar — populates nodes + sequence, resets walker",
+    "load_image": "<input type=file accept=image/*> in top load bar — sets canvas background",
+    "no_export": "Player is view-only. No save needed."
+  },
+  "zoom_pan": {
+    "same_as_cpicker": true,
+    "note": "Canvas height = window.innerHeight - 96 (48px top bar + 48px toolbar)"
+  },
+  "implementation_phases": [
+    {
+      "phase": 1,
+      "name": "Canvas + file loading",
+      "tasks": [
+        "HTML: canvas + top load bar + bottom toolbar",
+        "Image load → fit to available canvas area",
+        "JSON load → parse NODES + SEQUENCE (with backward compat)",
+        "Draw static scene: nodes, sequence path lines",
+        "Zoom/pan via shared.js ViewState"
+      ]
+    },
+    {
+      "phase": 2,
+      "name": "AGV movement",
+      "tasks": [
+        "Port advanceAlongPath from shared.js",
+        "requestAnimationFrame loop with dt + timeScale",
+        "sequence_walker: moving phase only (no trolley yet)",
+        "AGV rect drawn at agvPos with computed heading",
+        "Active node pulse ring",
+        "Play/Pause + Restart buttons wired up"
+      ]
+    },
+    {
+      "phase": 3,
+      "name": "Trolley + action logic",
+      "tasks": [
+        "action_pause phase with timer",
+        "Trolley state machine (empty / carrying)",
+        "pickup / release / exchange effects",
+        "Attached trolley drawn on AGV",
+        "Detached trolley drawn at trolleyPos",
+        "Action indicator: text label + progress arc"
+      ]
+    },
+    {
+      "phase": 4,
+      "name": "Player controls + polish",
+      "tasks": [
+        "Speed dropdown wired to timeScale",
+        "AGV speed + action duration inputs",
+        "Status badge + step counter",
+        "Grid + label toggles",
+        "Space bar play/pause shortcut",
+        "HUD: step info drawn on canvas"
+      ]
+    }
+  ],
+  "constants": {
+    "AGV_SIZE": 30,
+    "TROLLEY_W": 28,
+    "TROLLEY_H": 18,
+    "AGV_SPEED_DEFAULT": 120,
+    "ACTION_DURATION_DEFAULT": 1.5,
+    "SEQ_HIT_RADIUS": 18,
+    "ZOOM_MIN": 0.1,
+    "ZOOM_MAX": 8.0,
+    "ZOOM_STEP": 0.15,
+    "ACTION_COLORS": {
+      "pickup": "#50DC78",
+      "release": "#F4A261",
+      "exchange": "#50C8FF"
+    }
+  }
+}
